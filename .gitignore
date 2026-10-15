@@ -257,6 +257,5 @@ tfplan
 # Snyk Security Extension - AI Rules (auto-generated)
 .github/instructions/snyk_rules.instructions.md
 
-# Talent pipeline: workshop dataset (never commit) and local AI-builder rules
+# Workshop dataset (fetch with data/talent-pipeline/scripts/fetch_dataset.sh; never commit)
 sampleData/
-/CLAUDE.md

@@ -1,3 +1,7 @@
+> **Data engineering submission: ACME Talent Pipeline.**
+> Code, setup, tests and cloud evidence are in [data/talent-pipeline/README.md](data/talent-pipeline/README.md).
+> The rest of this README is the original workshop template.
+
 # Coding Workshop
 
 The goal of this coding workshop is to enable and assess the hands-on skills

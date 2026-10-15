@@ -1,4 +1,4 @@
-"""Integration tests: run the real pipeline twice into a temp lake (PLAN.md §6).
+"""Integration tests: run the real pipeline twice into a temp lake.
 
 job.py runs in a subprocess, exactly as in production. Running main() in-process would
 reuse the test SparkSession (ignoring the job's config) and stop it at the end.
@@ -21,7 +21,7 @@ pytestmark = pytest.mark.integration
 JOB_DIR = Path(job.__file__).resolve().parent
 TECH_COLS = ("_gold_run_id", "_built_at", "_run_id")
 
-# Mirrors the expected numbers in docs/PLAN.md §2.
+# Mirrors the reference numbers in docs/DESIGN.md.
 EXPECTED = {
     "hr": {
         "employees": 2000, "teams": 100, "competencies": 40, "projects": 33,

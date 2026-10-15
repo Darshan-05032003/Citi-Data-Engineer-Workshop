@@ -7,4 +7,3 @@ metastore_db/
 *.tfplan
 __pycache__/
 .pytest_cache/
-docs/PROGRESS.md

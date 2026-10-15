@@ -4,6 +4,26 @@ A single-file PySpark job (`job.py`) that turns ACME's HR extracts and learning-
 Bronze → Silver → Gold lake, with data-quality rules, quarantine and a run manifest. The Gold layer
 answers seven talent questions (performance trend, competency gaps, promotion shortlist, learning,
 attrition context, team outcomes, competency coverage), shown in `notebooks/talent_insights.ipynb`.
+Design decisions and metric definitions: [docs/DESIGN.md](docs/DESIGN.md).
+
+## Setup
+
+**Prerequisites:** Python 3.11 and Java 17 (Spark 3.5.0 runs on Java 17). For the cloud run only: AWS CLI, kubectl, Helm, Terraform.
+
+```bash
+cd data/talent-pipeline
+scripts/fetch_dataset.sh      # downloads + sha256-checks the workshop dataset; skips if already present
+scripts/setup_local.sh        # creates .venv (python3.11), installs requirements-dev.txt, checks Java 17 + pyspark 3.5.0
+source .venv/bin/activate
+```
+
+- **Dataset:** <http://www.codingworkshop.net/data/data-engineering-sample-performance-scenario.zip>
+  (sha256 `9c400617fc047583e765345f0b2489fa7f0bf30e759d432b3cc7e80f3625a0c8`). It unzips to
+  `sampleData/data-engineering-sample-performance-scenario/data-engineering-performance-talent-management/` at the repo root,
+  which is the default `SOURCE_DIR`. The dataset is git-ignored and never committed.
+- **Manual equivalent of `setup_local.sh`:** `python3.11 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt`, then
+  in `.venv/bin/activate` set `export JAVA_HOME=<Java 17 home>`, `export PATH="$JAVA_HOME/bin:$PATH"` and `unset SPARK_HOME`.
+  A `SPARK_HOME` pointing at another Spark version (for example 4.x) breaks the pip-installed pyspark 3.5.0.
 
 ## Architecture
 
@@ -41,7 +61,7 @@ Run only the fast tests with `pytest -q -m "not integration"`.
 ## Cloud deployment
 
 The same `job.py` runs as a Kubernetes Job on EKS (image `jupyter/all-spark-notebook`, Spark 3.5.0) against an S3 data lake.
-Procedure (from the repo root; Darshan runs the deploy, the builder is read-only on AWS):
+Procedure (from the repo root, with the workshop AWS credentials):
 
 ```bash
 source ENVIRONMENT.config && unset AWS_ENDPOINT_URL AWS_ENDPOINT_URL_S3
@@ -129,7 +149,7 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 - **Example's structure.** Function names follow the example job: `create_spark_session`, `ingest_into_bronze`, `transform_to_silver`, `aggregate_to_gold`, `main`. No Iceberg.
 - **Single `job.py`.** The cloud Helm job receives only `job.py` + `requirements.txt`; tests, notebook and docs stay local.
 - **`pyspark==3.5.0`** in `requirements.txt` (nothing else) to match the cloud image (Spark 3.5.0, Python 3.11, Java 17).
-- **Files instead of Postgres.** Bronze reads the CSVs and JSONL directly from `SOURCE_DIR` (decision of 15 Oct, PLAN.md §0).
+- **Files instead of Postgres.** Bronze reads the CSVs and JSONL directly from `SOURCE_DIR` (see [docs/DESIGN.md](docs/DESIGN.md)).
 - **Idempotent re-runs.** Bronze overwrites only its own partition (dynamic overwrite); Silver and Gold are full overwrites.
   The integration test runs the job twice and checks identical counts, no duplicate keys and identical Gold content hashes.
 
@@ -138,7 +158,7 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 - Only 2 review periods (a trend is a single change) and 1 talent-review cycle.
 - Projects link only to teams (27 of 100) and have no dates; there is no "key competency" flag and no course-to-competency mapping.
 - Counts after Silver differ slightly from raw profiling: 38 `notes` events after dedupe, 3,255 completion-without-enrollment
-  employee×course pairs (39 lines / 3,262 raw (initial profiling, PLAN.md §2)).
+  employee×course pairs (39 lines / 3,262 in raw profiling; see [docs/DESIGN.md](docs/DESIGN.md#reference-numbers)).
 - Postgres/JDBC sources are not implemented: both environments read files from `SOURCE_DIR`.
 - The cloud job uses short-lived credentials in a Kubernetes Secret instead of IRSA; a cloud run is slow (~24–25 min) and its pod
   logs are deleted 30 min after it finishes, so the run manifest in S3 is the durable record.

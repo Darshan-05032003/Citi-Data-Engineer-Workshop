@@ -1,8 +1,16 @@
 """Shared pytest fixtures: a local Spark session and a temporary lake root."""
+import os
+import sys
 from pathlib import Path
 
 import pytest
 from pyspark.sql import SparkSession
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Make Spark workers (and the job subprocesses) use this interpreter unless set already."""
+    os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
+    os.environ.setdefault("PYSPARK_DRIVER_PYTHON", sys.executable)
 
 
 @pytest.fixture(scope="session")
