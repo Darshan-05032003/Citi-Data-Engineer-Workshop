@@ -60,9 +60,9 @@ kubectl logs -f job/coding-workshop-talent-pipeline                             
   deploying shell at apply time and never written to Terraform state. Reason: the EKS node role has no S3 permissions and the node
   requires IMDSv2 with hop limit 1, so pods cannot use instance credentials. They are short-lived STS credentials: run the job right
   after `deploy-backend.sh`. They are also kept in Helm's release record. Production would use IRSA (a pod IAM role) instead.
-- **Runtime:** the cloud run took 1,440 s versus ~90 s locally (latest run manifests): the pod has 1 CPU, reads 783 small JSONL
+- **Runtime:** the cloud runs took 1,440–1,476 s versus ~90 s locally (latest run manifests): the pod has 1 CPU, reads 783 small JSONL
   files over S3, and installs pyspark (~300 MB) with pip at start-up.
-- **Result:** run `20261015T071439Z-9de56f` succeeded and all 26 manifest steps match the local run
+- **Result:** runs `20261015T071439Z-9de56f` and `20261015T084021Z-13ec40` succeeded; all 26 manifest steps match the local run
   (see [Cloud run (EKS)](docs/test_evidence.md#cloud-run-eks)).
 
 ## Configuration (environment variables only)
@@ -140,7 +140,7 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 - Counts after Silver differ slightly from raw profiling: 38 `notes` events after dedupe, 3,255 completion-without-enrollment
   employee×course pairs (39 lines / 3,262 raw (initial profiling, PLAN.md §2)).
 - Postgres/JDBC sources are not implemented: both environments read files from `SOURCE_DIR`.
-- The cloud job uses short-lived credentials in a Kubernetes Secret instead of IRSA; a cloud run is slow (~24 min) and its pod
+- The cloud job uses short-lived credentials in a Kubernetes Secret instead of IRSA; a cloud run is slow (~24–25 min) and its pod
   logs are deleted 30 min after it finishes, so the run manifest in S3 is the durable record.
 
 ## How to verify
@@ -150,4 +150,4 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 - [`notebooks/talent_insights.ipynb`](notebooks/talent_insights.ipynb) / [`docs/talent_insights.html`](docs/talent_insights.html): findings for Q1–Q7.
 - The latest run manifest: `lake/_runs/run_id=<id>/` (status, per-step counts, quarantine and warning counts by rule).
 - [Cloud run (EKS)](docs/test_evidence.md#cloud-run-eks): cloud manifest vs local manifest, step by step.
-- [`docs/cloud_manifest.json`](docs/cloud_manifest.json): the full manifest of the successful cloud run.
+- [`docs/cloud_manifest.json`](docs/cloud_manifest.json) / [`docs/cloud_run_log.txt`](docs/cloud_run_log.txt): manifest and pipeline log of cloud run `20261015T084021Z-13ec40`.

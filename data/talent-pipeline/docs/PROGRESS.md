@@ -203,3 +203,15 @@ Decisions/assumptions made: did not fabricate a log file; committed everything e
 Problems or questions for Darshan: /tmp/cloud_run.log was written when kubectl was unauthorized (expired kubeconfig token) — the pod logs no longer exist (job ttl 1800 s). On the next cloud run: run `aws eks update-kubeconfig …` right before `kubectl logs -f job/coding-workshop-talent-pipeline > /tmp/cloud_run.log`.
 Git: branch=feature/talent-pipeline; committed (see git log)
 === END REPORT ===
+
+=== PROGRESS REPORT — Task C5c: cloud log + manifest for run 13ec40, commit ===
+Status: DONE
+Files created/modified: data/talent-pipeline/docs/cloud_run_log.txt (new, 33 pipeline lines + 3-line header); data/talent-pipeline/docs/cloud_manifest.json (replaced with run 20261015T084021Z-13ec40); data/talent-pipeline/docs/test_evidence.md ("Cloud run (EKS)" section rewritten for run 13ec40, earlier run 9de56f noted); data/talent-pipeline/README.md (both cloud runs, runtime 1,440–1,476 s, links to log + manifest)
+Commands run: /tmp/cloud_run.log → 61 lines of NEW run 20261015T084021Z-13ec40, captured mid-run (stops after bronze); kubectl get jobs → that job Running (a deploy had happened); waited read-only until SUCCEEDED 09:05:12Z; kubectl logs job/… → full log 87 lines; aws s3 cp manifest → 13ec40 SUCCESS 1476.222 s, 26 steps; secret scans of log + manifest → 0/0/0; manifest comparison vs local → 26/26 match
+Tests: pytest not re-run (19 passed at 08:13Z, no code changes since)
+Acceptance criteria: cloud_run_log.txt created from the full log of the run, pipeline lines only ✓; cloud_manifest.json = same run, no secrets ✓; counts 19 ✓ (already committed in 42d237c); commit local only ✓
+Key numbers: run 13ec40 duration 1,476.2 s; 26/26 steps match local; earlier run 9de56f also 26/26 (1,440.3 s)
+Decisions/assumptions made: used kubectl logs (complete) instead of the partial /tmp/cloud_run.log so log and manifest belong to the same run; no redeploy, no S3 changes
+Problems or questions for Darshan: none
+Git: branch=feature/talent-pipeline; committed (see git log)
+=== END REPORT ===

@@ -43,14 +43,14 @@ Values copied from `tests/test_pipeline.py` `EXPECTED` and the latest local mani
 
 ## Cloud run (EKS)
 
-- run_id `20261015T071439Z-9de56f` · status **SUCCESS** · duration **1440.3 s** (local run `20261015T055916Z-0b2e43`: 89.715 s) · started 2026-10-15T07:14:39.346871+00:00
+- run_id `20261015T084021Z-13ec40` · status **SUCCESS** · duration **1476.222 s** (local run `20261015T081756Z-03a037`: 91.569 s) · started 2026-10-15T08:40:21.969337+00:00
 - Runtime: EKS Job `coding-workshop-talent-pipeline`, image `jupyter/all-spark-notebook` (Spark 3.5.0), `IS_LOCAL=false`,
   `SOURCE_DIR=s3a://coding-workshop-datalake-f2a96bad/source` (790 objects: 7 CSVs + 783 JSONL), `LAKE_ROOT=s3a://coding-workshop-datalake-f2a96bad/lake`.
 - **Comparison: 26 of 26 manifest steps match** the local manifest (row counts below, plus status and the per-rule
   quarantine/warning notes, which are identical).
-- The notebook was also executed against the cloud Gold copy (`lake_cloud/`): 0 errors, 7 charts, all printed findings identical to the local run.
-- Pod logs were not captured: the saved `kubectl logs` output contained only an authentication error, and the job was removed by
-  `ttlSecondsAfterFinished=1800` before a retry. The S3 manifest below is the record of the run.
+- Evidence files: [`cloud_run_log.txt`](cloud_run_log.txt) (pipeline log lines of this run) and [`cloud_manifest.json`](cloud_manifest.json) (its manifest).
+- An earlier cloud run, `20261015T071439Z-9de56f` (1440.3 s), also matched the local manifest on 26 of 26 steps. The notebook was
+  executed against that run's Gold copy (`lake_cloud/`): 0 errors, 7 charts, all printed findings identical to the local run.
 
 | step | local (read / written / quarantined / deduped / warned) | cloud (same) | match |
 |---|---|---|---|
@@ -83,8 +83,8 @@ Values copied from `tests/test_pipeline.py` `EXPECTED` and the latest local mani
 
 Commands (read-only, prefixed with `source ENVIRONMENT.config && unset AWS_ENDPOINT_URL AWS_ENDPOINT_URL_S3 &&`):
 ```
+kubectl logs job/coding-workshop-talent-pipeline            # full pod log -> filtered into cloud_run_log.txt
+aws s3 ls s3://coding-workshop-datalake-f2a96bad/lake/_runs/
+aws s3 cp s3://coding-workshop-datalake-f2a96bad/lake/_runs/run_id=20261015T084021Z-13ec40/part-00000-<id>-c000.txt -
 aws s3 ls s3://coding-workshop-datalake-f2a96bad/source/ --recursive | wc -l
-aws s3 cp s3://coding-workshop-datalake-f2a96bad/lake/_runs/run_id=20261015T071439Z-9de56f/part-00000-<id>-c000.txt -
-aws s3 sync s3://coding-workshop-datalake-f2a96bad/lake/gold/ data/talent-pipeline/lake_cloud/gold/
-aws s3 sync s3://coding-workshop-datalake-f2a96bad/lake/_runs/run_id=20261015T071439Z-9de56f/ data/talent-pipeline/lake_cloud/_runs/run_id=20261015T071439Z-9de56f/
 ```

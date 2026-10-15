@@ -1,11 +1,11 @@
 {
-  "duration_s": 1440.3,
-  "ended_at": "2026-10-15T07:38:39.647077+00:00",
+  "duration_s": 1476.222,
+  "ended_at": "2026-10-15T09:04:58.191524+00:00",
   "is_local": false,
   "lake_root": "s3a://coding-workshop-datalake-f2a96bad/lake",
-  "run_id": "20261015T071439Z-9de56f",
+  "run_id": "20261015T084021Z-13ec40",
   "source_dir": "s3a://coding-workshop-datalake-f2a96bad/source",
-  "started_at": "2026-10-15T07:14:39.346871+00:00",
+  "started_at": "2026-10-15T08:40:21.969337+00:00",
   "status": "SUCCESS",
   "steps": [
     {
