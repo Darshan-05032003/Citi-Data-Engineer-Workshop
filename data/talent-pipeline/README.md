@@ -1,5 +1,7 @@
 # ACME Talent Pipeline
 
+[![Talent Pipeline CI](https://github.com/Darshan-05032003/Citi-Data-Engineer-Workshop/actions/workflows/talent-pipeline.yml/badge.svg)](https://github.com/Darshan-05032003/Citi-Data-Engineer-Workshop/actions/workflows/talent-pipeline.yml)
+
 A single-file PySpark job (`job.py`) that turns ACME's HR extracts and learning-activity logs into a
 Bronze → Silver → Gold lake, with data-quality rules, quarantine and a run manifest. The Gold layer
 answers seven talent questions (performance trend, competency gaps, promotion shortlist, learning,
@@ -59,6 +61,9 @@ jupyter nbconvert --to html --output-dir ../docs talent_insights.ipynb
 Run only the fast tests with `pytest -q -m "not integration"` (~70 s). They include in-process Bronze → Silver → Gold runs on a
 hand-made mini dataset (`tests/fixtures/mini_source/`), the source guards (`tests/test_guards.py`) and give 98% line coverage of `job.py`:
 `pytest -q -m "not integration" --cov=job --cov-report=term-missing`.
+
+**CI** ([`.github/workflows/talent-pipeline.yml`](../../.github/workflows/talent-pipeline.yml), on every push/PR touching this folder):
+unit tests with a 90% coverage gate → integration tests on the downloaded, sha256-checked dataset; bandit scan of `job.py` (medium+ fails).
 
 ## Cloud deployment
 

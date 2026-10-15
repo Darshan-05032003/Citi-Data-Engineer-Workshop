@@ -1,0 +1,87 @@
+name: Talent Pipeline CI
+
+# Unit tests (with coverage gate), integration tests on the real workshop dataset and a
+# bandit security scan for data/talent-pipeline. Runs only when the pipeline or this file changes.
+on:
+  push:
+    paths:
+      - "data/talent-pipeline/**"
+      - ".github/workflows/talent-pipeline.yml"
+  pull_request:
+    paths:
+      - "data/talent-pipeline/**"
+      - ".github/workflows/talent-pipeline.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: talent-pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: data/talent-pipeline
+
+jobs:
+  unit:
+    name: unit (pytest + coverage ≥ 90%)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: data/talent-pipeline/requirements-dev.txt
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Unit tests with coverage gate
+        run: pytest -q -m "not integration" --cov=job --cov-report=term --cov-fail-under=90
+
+  integration:
+    name: integration (real dataset, job.py run twice)
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: data/talent-pipeline/requirements-dev.txt
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Fetch workshop dataset (sha256-checked)
+        run: |
+          if ! bash scripts/fetch_dataset.sh; then
+            echo "::error title=Dataset download failed::Could not download or verify the workshop dataset (see the log above). The integration tests did not run; this is not a pipeline test failure."
+            exit 1
+          fi
+      - name: Integration tests
+        run: pytest -q -m integration
+
+  security:
+    name: security (bandit, medium+)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install bandit
+        run: pip install bandit==1.7.10
+      - name: Bandit scan of job.py
+        run: bandit -r job.py -ll

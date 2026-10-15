@@ -91,6 +91,40 @@ matched the previous local run `20261015T081756Z-03a037` on all 26 steps: status
 | Gold rows | history 11, summary 6, gaps 7, teams 3, competency_distribution 6, learning_progress 5, learning_summary 6, promotion_readiness 6, attrition_context 6, attrition_by_trend 5 |
 | Gold values | trend improving/declining/stable/null 3/1/1/1; gaps −1/0/1/2 = 1/3/1/2; High + Ready Now 2; completion without enrollment 1; 1 team with projects (2 projects) |
 
+## CI
+
+`.github/workflows/talent-pipeline.yml` (GitHub Actions). It runs on push and pull request when `data/talent-pipeline/**`
+or the workflow file changes, and on manual dispatch. Permissions are `contents: read`, and it uses no secrets.
+
+| Job | Runs | Fails when |
+|---|---|---|
+| `unit` | Python 3.11 + Temurin Java 17; `pip install -r requirements-dev.txt`; `pytest -q -m "not integration" --cov=job --cov-report=term --cov-fail-under=90` | any unit test fails or `job.py` coverage < 90% |
+| `integration` (needs `unit`, 20 min timeout) | same setup; `bash scripts/fetch_dataset.sh` (download + sha256 check); `pytest -q -m integration` | the dataset can't be fetched or verified (clear `::error` annotation: "Dataset download failed … not a pipeline test failure"), or any integration test fails |
+| `security` | `pip install bandit==1.7.10`; `bandit -r job.py -ll` | bandit finds a medium or high severity issue |
+
+**The same commands, run locally** (2026-10-15, before the first push of the workflow):
+
+```
+$ pytest -q -m "not integration" --cov=job --cov-report=term --cov-fail-under=90
+job.py     461      9    98%
+Required test coverage of 90% reached. Total coverage: 98.05%
+46 passed, 4 deselected in 73.40s (0:01:13)
+
+$ bash scripts/fetch_dataset.sh
+Dataset already present, skipping: …/sampleData/data-engineering-sample-performance-scenario/data-engineering-performance-talent-management
+
+$ pytest -q -m integration
+4 passed, 46 deselected in 144.90s (0:02:24)
+
+$ bandit -r job.py -ll          # bandit 1.7.10
+Test results:
+	No issues identified.
+Total lines of code: 1130 · Total lines skipped (#nosec): 0 · Issues by severity: Low 0, Medium 0, High 0
+```
+
+The failure path of the dataset step was also simulated: the download command was replaced by one that fails. The step
+printed the `::error` annotation and exited 1.
+
 ## Performance
 
 File layout and caching change (see [DESIGN.md](DESIGN.md#performance)). Each run below used the real dataset, started from
