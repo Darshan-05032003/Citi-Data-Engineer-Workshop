@@ -16,7 +16,7 @@ SOURCE_DIR (7 HR CSVs + learning_activity/*.jsonl)
 | Layer | Contract |
 |---|---|
 | Bronze HR | CSV rows as strings, one partition per `ingest_date`; nothing dropped |
-| Bronze learning | one row per raw JSONL line (`value`, `_line_no`, `_source_file`, `_record_hash`), partitioned like the source (`year/month/day`) |
+| Bronze learning | one row per raw JSONL line (`value`, `_line_no`, `_source_file`, `_record_hash`), partitioned by `year/month` with `day` as a column, one file per month (see Performance) |
 | Silver | typed columns, every DQ rule applied, row-level `dq_warnings`; learning events partitioned by `event_year/event_month` |
 | Quarantine | failing rows with all `rule_ids` and `dq_reasons`, per entity and `run_id` |
 | Gold | G1 employee×period, G1b employee, G2 employee×competency, G3 employee, G4 employee×course, G4b employee, G5 employee, G5b attrition_risk×trend, G6 team, G7 competency×department |
@@ -73,8 +73,58 @@ reason, the manifest status becomes `FAILED`, and the exit code is 1. Silver and
 | S3 Access Denied | Not retried. The run fails immediately with the AWS error in the log. The fix is permissions: the Kubernetes Secret credentials here, IRSA in production. If the manifest write itself is denied, the job logs `could not write manifest` and exits 1. |
 | Zero rows written | Halts: a missing or 0-byte CSV, a CSV with 0 data rows, no learning files, or 0 learning lines all fail the run before anything is written. Every step must also reconcile (`read = written + quarantined + deduped`), and every Gold write checks its grain. |
 
-Bronze checklist: source byte sizes are recorded in the manifest; Bronze learning keeps the source `year=/month=/day=`
-partitions; Bronze HR is partitioned by `ingest_date`, and a re-run overwrites only that day's partition.
+Bronze checklist:
+- Source byte sizes are recorded in the manifest.
+- Bronze learning is partitioned by `year=/month=`, with `day` kept as a column. This deliberately differs from the guide's
+  `day=DD` example; see Performance.
+- Bronze HR is partitioned by `ingest_date`, and a re-run overwrites only that day's partition.
+
+## Performance
+
+**The small-file problem.** The source has 29,868 learning events in 783 daily files, about 38 events per day. Partitioning
+Bronze by day therefore produced 782 parquet files of about 9 KB each, and Silver wrote about 3 files per month. On S3,
+every file costs list, open, write and commit-rename (copy plus delete) requests. The cloud run spent about 13 min in
+Bronze learning and about 6.5 min in Silver learning, of 25 min in total.
+
+**What changed** (layout and caching only; row counts and Gold values are identical):
+- **Bronze learning:** partitioned by `year/month`, with `repartition(year, month)` so each month is exactly one file
+  (about 37 files instead of 782). `day` stays a column.
+- **Raw learning lines are cached.** The 783 landing files are read once; before, the per-file statistics and the write
+  each read them.
+- **Silver learning:** caches its Bronze read, which was previously scanned for the count, the dedupe, the write and
+  the quarantine. It writes with `repartition(event_year, event_month)`, so each partition is one file.
+- **Small HR Silver tables, quarantine and every Gold dataset** are written with `coalesce(1)`, so each is one file.
+- Each manifest step records `files_written`.
+
+**Measured locally** (real dataset, fresh `lake/` each time, `local[2]`; sum of step `duration_s` per layer):
+
+| Layer | Before: seconds | Before: parquet files | After: seconds | After: parquet files |
+|---|---|---|---|---|
+| Bronze HR (7 tables) | 8.26 | 7 | 8.33 | 7 |
+| Bronze learning | 25.53 | 782 | 12.06 | 37 |
+| Silver HR (7 tables) | 12.18 | 7 | 13.38 | 7 |
+| Silver learning | 24.01 | 111 | 12.28 | 37 |
+| Quarantine | — | 15 | — | 1 |
+| Gold (10 datasets) | 11.64 | 10 | 12.41 | 10 |
+| **Run total** | **96.04** | **932** | **75.32** | **99** |
+
+- Parquet files fell by 89% (932 → 99). The two learning steps run about 2× faster, and the run as a whole about 22% faster.
+- Local disk hides most of the per-file cost. On S3 each avoided file saves several HTTP requests, so the cloud gain
+  should be larger. It has not been measured yet; the next cloud run's manifest will show it, since each step records
+  `duration_s` and `files_written`.
+- A second run on the same lake gave identical counts and identical Gold content hashes. The only extra file was the new
+  run's quarantine folder, which is kept per `run_id` on purpose.
+
+**Why not the S3A magic committer.**
+- Spark's cloud committer (`PathOutputCommitProtocol`) does not support `partitionOverwriteMode=dynamic`, which Bronze
+  relies on to replace only the partitions it writes.
+- It also needs the extra `spark-hadoop-cloud` jar.
+- With about 99 files per run, the classic committer's rename cost is now small.
+
+**Next options, if more speed is needed:**
+- **Compact the source:** monthly instead of daily landing files. Globbing 783 day folders also costs about 800 S3 LIST calls.
+- **Give the pod 2 CPUs:** `local[2]` currently shares 1 CPU.
+- **Bake pyspark into the image:** skips the ~300 MB pip install at start-up (about 30 s).
 
 ## Recorded vs derived
 

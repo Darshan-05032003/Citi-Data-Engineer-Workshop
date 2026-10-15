@@ -50,8 +50,8 @@ flowchart LR
 ```bash
 cd data/talent-pipeline
 source .venv/bin/activate        # Python 3.11, pyspark 3.5.0; activate sets JAVA_HOME=Java 17 and unsets SPARK_HOME
-python job.py                    # full run, ~90 s (latest run manifest); writes ./lake
-pytest -q                        # 45 unit + 4 integration = 49 tests (integration runs the job twice, ~4 min)
+python job.py                    # full run, ~75 s (latest run manifest); writes ./lake
+pytest -q                        # 46 unit + 4 integration = 50 tests (integration runs the job twice, ~4 min)
 cd notebooks && jupyter nbconvert --to notebook --execute --inplace talent_insights.ipynb
 jupyter nbconvert --to html --output-dir ../docs talent_insights.ipynb
 ```
@@ -82,7 +82,7 @@ kubectl logs -f job/coding-workshop-talent-pipeline                             
   deploying shell at apply time and never written to Terraform state. Reason: the EKS node role has no S3 permissions and the node
   requires IMDSv2 with hop limit 1, so pods cannot use instance credentials. They are short-lived STS credentials: run the job right
   after `deploy-backend.sh`. They are also kept in Helm's release record. Production would use IRSA (a pod IAM role) instead.
-- **Runtime:** the cloud runs took 1,440–1,476 s versus ~90 s locally (latest run manifests): the pod has 1 CPU, reads 783 small JSONL
+- **Runtime:** the cloud runs took 1,440–1,476 s versus ~90 s locally (run manifests before the file-layout change in docs/DESIGN.md#performance): the pod has 1 CPU, reads 783 small JSONL
   files over S3, and installs pyspark (~300 MB) with pip at start-up.
 - **Result:** runs `20261015T071439Z-9de56f` and `20261015T084021Z-13ec40` succeeded; all 26 manifest steps match the local run
   (see [Cloud run (EKS)](docs/test_evidence.md#cloud-run-eks)).
@@ -103,7 +103,7 @@ Nothing runs at import time; all config is read in `main()`.
 
 ```
 {LAKE_ROOT}/bronze/hr/<table>/ingest_date=YYYY-MM-DD/      CSV rows as strings + _run_id, _ingested_at, _source_system, _source_file
-{LAKE_ROOT}/bronze/learning_activity/year=/month=/day=/     raw line (value), _line_no, _source_file, _record_hash
+{LAKE_ROOT}/bronze/learning_activity/year=/month=/          raw line (value), _line_no, _source_file, _record_hash, day (1 file per month)
 {LAKE_ROOT}/silver/<hr table>/                              typed, validated, dq_warnings
 {LAKE_ROOT}/silver/learning_events/event_year=/event_month=/
 {LAKE_ROOT}/quarantine/<entity>/run_id=<id>/                 error rows + rule_ids, dq_reasons (written only if non-empty)
@@ -164,6 +164,8 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 - **Single `job.py`.** The cloud Helm job receives only `job.py` + `requirements.txt`; tests, notebook and docs stay local.
 - **`pyspark==3.5.0`** in `requirements.txt` (nothing else) to match the cloud image (Spark 3.5.0, Python 3.11, Java 17).
 - **Files instead of Postgres.** Bronze reads the CSVs and JSONL directly from `SOURCE_DIR` (see [docs/DESIGN.md](docs/DESIGN.md)).
+- **Few, larger files.** Bronze learning is partitioned by month (not day: ~38 events/day would give ~9 KB files), each partition and
+  small table is one file, and inputs are read once (cached): 932 → 99 parquet files per run ([docs/DESIGN.md](docs/DESIGN.md#performance)).
 - **Idempotent re-runs.** Bronze overwrites only its own partition (dynamic overwrite); Silver and Gold are full overwrites.
   The integration test runs the job twice and checks identical counts, no duplicate keys and identical Gold content hashes.
 
@@ -179,7 +181,7 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 
 ## How to verify
 
-- [`docs/test_evidence.md`](docs/test_evidence.md): exact test command, full pytest output (49 passed), unit coverage (98%) and the tables of numbers asserted by the tests.
+- [`docs/test_evidence.md`](docs/test_evidence.md): exact test command, full pytest output (50 passed), unit coverage (98%) and the tables of numbers asserted by the tests.
 - [`docs/source_to_target.md`](docs/source_to_target.md): column mapping per layer with the rule IDs applied.
 - [`notebooks/talent_insights.ipynb`](notebooks/talent_insights.ipynb) / [`docs/talent_insights.html`](docs/talent_insights.html): findings for Q1–Q7.
 - The latest run manifest: `lake/_runs/run_id=<id>/` (status, code version, source sizes, per-step counts and timings,

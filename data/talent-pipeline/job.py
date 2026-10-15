@@ -452,9 +452,17 @@ def _fail(manifest: "RunManifest", step: str, message: str) -> None:
     raise ValueError(message)
 
 
-def _timing(metrics: "StepMetrics") -> str:
-    """'duration_s=… rows_per_s=…' suffix for a step's log line."""
-    return f"duration_s={metrics.duration_s:.2f} rows_per_s={metrics.rows_per_s or 0:.0f}"
+def _step_stats(metrics: "StepMetrics") -> str:
+    """'files_written=… duration_s=… rows_per_s=…' suffix for a step's log line."""
+    return (
+        f"files_written={metrics.files_written} duration_s={metrics.duration_s:.2f} "
+        f"rows_per_s={metrics.rows_per_s or 0:.0f}"
+    )
+
+
+def count_parquet(spark: SparkSession, glob_path: str) -> int:
+    """Number of parquet files matching a glob (a step's output after its write)."""
+    return sum(1 for p in file_sizes(spark, glob_path) if p.endswith(".parquet"))
 
 
 def validate_sources(
@@ -529,14 +537,19 @@ def ingest_into_bronze(
         out.write.mode("overwrite").partitionBy("ingest_date").parquet(path)
         rows_written = spark.read.parquet(f"{path}/ingest_date={ingest_date}").count()
         step = manifest.add_step(
-            StepMetrics(step=f"bronze.hr.{table}", rows_read=rows_read, rows_written=rows_written)
+            StepMetrics(
+                step=f"bronze.hr.{table}", rows_read=rows_read, rows_written=rows_written,
+                files_written=count_parquet(spark, f"{path}/ingest_date={ingest_date}/*"),
+            )
         )
         log.info("bronze: hr.%s read=%d written=%d %s", table, rows_read, rows_written,
-                 _timing(step))
+                 _step_stats(step))
 
     manifest.start_step()
     landing = f"{cfg.source_dir}/{LEARNING_DIR}"
-    lines = read_learning_lines(spark, landing)
+    # Cached: the per-file stats below and the write both use it, so the landing files
+    # (783 small objects on S3) are read only once.
+    lines = read_learning_lines(spark, landing).cache()
     per_file = {
         r["_source_file"]: (r["lines"], r["non_blank"])
         for r in lines.groupBy("_source_file")
@@ -556,9 +569,12 @@ def ingest_into_bronze(
         _fail(manifest, "bronze.learning_activity",
               f"learning files under {landing} contain 0 lines")
     path = f"{cfg.lake_root}/bronze/learning_activity"
-    bronze_learning_rows(lines, run_id, ingested_at).write.mode("overwrite").partitionBy(
-        "year", "month", "day"
-    ).parquet(path)
+    # One folder and one file per month: day folders would hold ~38 events (~9 KB) each.
+    # day stays a column; dynamic overwrite replaces whole year=/month= folders.
+    bronze_learning_rows(lines, run_id, ingested_at).repartition("year", "month").write.mode(
+        "overwrite"
+    ).partitionBy("year", "month").parquet(path)
+    lines.unpersist()
     rows_written = spark.read.parquet(path).where(F.col("_run_id") == run_id).count()
     blank = rows_read - rows_written
     step = manifest.add_step(
@@ -568,11 +584,12 @@ def ingest_into_bronze(
             rows_written=rows_written,
             note=f"files={len(listed)} zero_line_files={len(zero_line_files)} "
             f"blank_lines_dropped={blank}",
+            files_written=count_parquet(spark, f"{path}/year=*/month=*/*"),
         )
     )
     log.info(
         "bronze: learning_activity files=%d lines=%d written=%d blank_dropped=%d %s",
-        len(listed), rows_read, rows_written, blank, _timing(step),
+        len(listed), rows_read, rows_written, blank, _step_stats(step),
     )
 
 
@@ -653,13 +670,13 @@ def transform_to_silver(
         valid = valid.withColumn("_run_id", F.lit(run_id))
 
         path = f"{cfg.lake_root}/silver/{table}"
-        valid.write.mode("overwrite").parquet(path)
+        valid.coalesce(1).write.mode("overwrite").parquet(path)  # small table: one file
         silver = spark.read.parquet(path)
         rows_written = silver.count()
         rows_warned = silver.where(F.size("dq_warnings") > 0).count()
         rows_quarantined = quarantine.count()
         if rows_quarantined:
-            quarantine.write.mode("overwrite").parquet(
+            quarantine.coalesce(1).write.mode("overwrite").parquet(
                 f"{cfg.lake_root}/quarantine/{table}/run_id={run_id}"
             )
         checked.unpersist()
@@ -677,11 +694,12 @@ def transform_to_silver(
                 rows_written=rows_written,
                 rows_quarantined=rows_quarantined,
                 rows_warned=rows_warned,
+                files_written=count_parquet(spark, f"{path}/*"),
             )
         )
         log.info(
             "silver: hr.%s read=%d written=%d quarantined=%d warned=%d %s",
-            table, rows_read, rows_written, rows_quarantined, rows_warned, _timing(step),
+            table, rows_read, rows_written, rows_quarantined, rows_warned, _step_stats(step),
         )
 
     silver_learning(spark, cfg, log, manifest, valid_by_table["employees"])
@@ -695,8 +713,12 @@ EVENT_TS_FORMAT = "yyyy-MM-dd'T'HH:mm:ss"
 
 
 def read_bronze_learning(spark: SparkSession, cfg: Config) -> DataFrame:
-    """Read Bronze learning lines through a glob, so year/month/day are not inferred."""
-    return spark.read.parquet(f"{cfg.lake_root}/bronze/learning_activity/year=*/month=*/day=*")
+    """Read Bronze learning lines through a glob over the year=/month= folders.
+
+    The glob stops partition inference, so year/month are not added as columns
+    (day is a stored column). Only value and lineage columns are used downstream.
+    """
+    return spark.read.parquet(f"{cfg.lake_root}/bronze/learning_activity/year=*/month=*")
 
 
 def parse_learning(bronze: DataFrame) -> DataFrame:
@@ -759,7 +781,8 @@ def silver_learning(
     """Bronze lines → parse → malformed check → dedupe → rules → silver/learning_events."""
     run_id = manifest.run_id
     manifest.start_step()
-    bronze = read_bronze_learning(spark, cfg)
+    # Cached: counted, deduped, validated and quarantined from one read of Bronze.
+    bronze = read_bronze_learning(spark, cfg).cache()
     rows_read = bronze.count()
 
     parsed, malformed_q = apply_rules(parse_learning(bronze), "learning_events_raw", run_id)
@@ -768,9 +791,9 @@ def silver_learning(
     valid, rules_q = apply_rules(checked, "learning_events", run_id)
 
     path = f"{cfg.lake_root}/silver/learning_events"
-    valid.withColumn("_run_id", F.lit(run_id)).write.mode("overwrite").partitionBy(
+    valid.withColumn("_run_id", F.lit(run_id)).repartition(  # one file per partition
         "event_year", "event_month"
-    ).parquet(path)
+    ).write.mode("overwrite").partitionBy("event_year", "event_month").parquet(path)
     silver = spark.read.parquet(path)
     rows_written = silver.count()
     warnings = _counts_by(silver, "dq_warnings")
@@ -780,10 +803,11 @@ def silver_learning(
     errors = _counts_by(quarantine, "rule_ids")
     rows_quarantined = quarantine.count()
     if rows_quarantined:
-        quarantine.write.mode("overwrite").parquet(
+        quarantine.coalesce(1).write.mode("overwrite").parquet(
             f"{cfg.lake_root}/quarantine/learning_events/run_id={run_id}"
         )
     checked.unpersist()
+    bronze.unpersist()
 
     if rows_read != rows_written + rows_quarantined + rows_deduped:
         raise ValueError(
@@ -799,11 +823,12 @@ def silver_learning(
             rows_deduped=rows_deduped,
             rows_warned=rows_warned,
             note=json.dumps({"quarantine_by_rule": errors, "warnings_by_rule": warnings}),
+            files_written=count_parquet(spark, f"{path}/event_year=*/event_month=*/*"),
         )
     )
     log.info(
         "silver: learning_events read=%d = deduped %d + quarantined %d + written %d %s",
-        rows_read, rows_deduped, rows_quarantined, rows_written, _timing(step),
+        rows_read, rows_deduped, rows_quarantined, rows_written, _step_stats(step),
     )
     log.info("silver: learning_events quarantine by rule %s", errors)
     log.info("silver: learning_events warnings by rule %s", warnings)
@@ -1115,16 +1140,19 @@ def write_gold(
     path = f"{cfg.lake_root}/gold/{name}"
     df.withColumns(
         {"_gold_run_id": F.lit(manifest.run_id), "_built_at": F.current_timestamp()}
-    ).write.mode("overwrite").parquet(path)
+    ).coalesce(1).write.mode("overwrite").parquet(path)  # Gold datasets are small: one file
     gold = spark.read.parquet(path)
     rows_written = gold.count()
     keys = GOLD_GRAINS[name]
     distinct_keys = gold.select(*keys).distinct().count()
     if distinct_keys != rows_written:
         raise ValueError(f"gold.{name}: {rows_written - distinct_keys} duplicate {keys} keys")
-    step = manifest.add_step(StepMetrics(step=f"gold.{name}", rows_written=rows_written))
+    step = manifest.add_step(
+        StepMetrics(step=f"gold.{name}", rows_written=rows_written,
+                    files_written=count_parquet(spark, f"{path}/*"))
+    )
     log.info("gold: %s rows=%d grain=%s unique %s", name, rows_written, "×".join(keys),
-             _timing(step))
+             _step_stats(step))
 
 
 def aggregate_to_gold(
@@ -1190,6 +1218,7 @@ class StepMetrics:
     note: str = ""
     duration_s: Optional[float] = None
     rows_per_s: Optional[float] = None
+    files_written: Optional[int] = None  # parquet files in the step's output after the write
 
 
 def code_version() -> str:

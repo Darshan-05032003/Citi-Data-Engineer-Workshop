@@ -200,6 +200,23 @@ def test_manifest_observability_fields(run) -> None:
         assert s["rows_per_s"] == round(rows / s["duration_s"], 1), s["step"]
 
 
+def test_files_written_and_monthly_layout(spark, run) -> None:
+    """One parquet file per step output; Bronze learning is partitioned by year/month only."""
+    cfg, manifest, _ = run
+    assert {s.step: s.files_written for s in manifest.steps} == {s.step: 1 for s in manifest.steps}
+
+    bronze = Path(cfg.lake_root) / "bronze" / "learning_activity"
+    assert sorted(str(p.relative_to(bronze)) for p in bronze.glob("year=*/month=*")) == [
+        "year=2024/month=03"
+    ]
+    assert not list(bronze.rglob("day=*"))
+    days = spark.read.parquet(str(bronze / "year=*" / "month=*")).select("day").distinct()
+    assert sorted(r["day"] for r in days.collect()) == ["01", "02"]  # day=03 file is empty
+
+    quarantine = Path(cfg.lake_root) / "quarantine" / "learning_events" / "run_id=mini-run"
+    assert len(list(quarantine.glob("*.parquet"))) == 1
+
+
 def test_load_config_parsing() -> None:
     """IS_LOCAL truthy strings, trailing slash on LAKE_ROOT, empty AWS_REGION."""
     assert job.load_config(env={"IS_LOCAL": "false"}).is_local is False

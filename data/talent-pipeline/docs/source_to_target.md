@@ -14,7 +14,7 @@ quarantine). Rule ID lists were generated from `job.RULES`; column lists from th
 | — | `ingest_date` (partition) | UTC date of the run |
 | JSONL line | `bronze/learning_activity/` `value` | raw line, blank lines dropped |
 | line position | `_line_no` | 1-based line number in its file |
-| file path | `_source_file`; `year`/`month`/`day` (partitions) | path; regex on `year=/month=/day=` (strings) |
+| file path | `_source_file`; `year`/`month` (partition folders), `day` (column) | path; regex on `year=/month=/day=` (strings) |
 | — | `_record_hash`, `_run_id`, `_ingested_at` | `sha2(value, 256)`; run id / timestamp |
 
 ## 2. Bronze → Silver HR (read newest `ingest_date` folder; parents validated first)

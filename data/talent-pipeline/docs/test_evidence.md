@@ -7,12 +7,12 @@ Run date (UTC): 2026-10-15 · branch: feature/talent-pipeline · Python 3.11.0rc
 cd data/talent-pipeline && source .venv/bin/activate && pytest -q
 ```
 
-Covers 45 unit tests (`tests/test_rules.py` 15, `tests/test_stages.py` 22, `tests/test_guards.py` 8; see [Unit coverage](#unit-coverage)) and 4 integration tests (`tests/test_pipeline.py`, marker `integration`). The integration fixture runs `python job.py` twice into one temporary LAKE_ROOT on the real dataset and checks every expected number ([DESIGN.md](DESIGN.md#reference-numbers)), per-step reconciliation (bronze/silver), and re-run idempotency (equal counts, no duplicate keys, identical Gold content hashes).
+Covers 46 unit tests (`tests/test_rules.py` 15, `tests/test_stages.py` 23, `tests/test_guards.py` 8; see [Unit coverage](#unit-coverage)) and 4 integration tests (`tests/test_pipeline.py`, marker `integration`). The integration fixture runs `python job.py` twice into one temporary LAKE_ROOT on the real dataset and checks every expected number ([DESIGN.md](DESIGN.md#reference-numbers)), per-step reconciliation (bronze/silver), and re-run idempotency (equal counts, no duplicate keys, identical Gold content hashes).
 
 ## Output
 ```
-.................................................                        [100%]
-49 passed in 235.45s (0:03:55)
+..................................................                       [100%]
+50 passed in 209.78s (0:03:29)
 ```
 
 ## Numbers verified by the integration test
@@ -54,17 +54,17 @@ manifest's observability fields (`code_version`, `spark_version`, source bytes, 
 cd data/talent-pipeline && source .venv/bin/activate && pytest -q -m "not integration" --cov=job --cov-report=term-missing
 Name     Stmts   Miss  Cover   Missing
 --------------------------------------
-job.py     456      9    98%   668, 789, 1295-1297, 1307-1309, 1316
+job.py     461      9    98%   685, 813, 1324-1326, 1336-1338, 1345
 --------------------------------------
-TOTAL      456      9    98%
-45 passed, 4 deselected in 70.51s (0:01:10)
+TOTAL      461      9    98%
+46 passed, 4 deselected in 69.93s (0:01:09)
 ```
 
 Before the mini-dataset tests, unit coverage was 58%. Still uncovered:
-- the two reconciliation `raise` lines (668, 789);
-- `main()`'s success tail (1295-1297, covered by the integration tests);
-- `main()`'s "could not write manifest" branch (1307-1309);
-- `sys.exit(main())` under `__main__` (1316).
+- the two reconciliation `raise` lines (685, 813);
+- `main()`'s success tail (1324-1326, covered by the integration tests);
+- `main()`'s "could not write manifest" branch (1336-1338);
+- `sys.exit(main())` under `__main__` (1345).
 
 The real-dataset run after these changes, `20261015T194137Z-c917c2` (SUCCESS, 95.99 s, code_version `d6d5cdadaaa6`),
 matched the previous local run `20261015T081756Z-03a037` on all 26 steps: status, all counts and notes.
@@ -90,6 +90,30 @@ matched the previous local run `20261015T081756Z-03a037` on all 26 steps: status
 | silver.learning_events | 10 / 6 / 3 (malformed 1, not_null 1, event_ts.invalid 1) / 1 / 2 (notes_used 1, before_hire 1) |
 | Gold rows | history 11, summary 6, gaps 7, teams 3, competency_distribution 6, learning_progress 5, learning_summary 6, promotion_readiness 6, attrition_context 6, attrition_by_trend 5 |
 | Gold values | trend improving/declining/stable/null 3/1/1/1; gaps −1/0/1/2 = 1/3/1/2; High + Ready Now 2; completion without enrollment 1; 1 team with projects (2 projects) |
+
+## Performance
+
+File layout and caching change (see [DESIGN.md](DESIGN.md#performance)). Each run below used the real dataset, started from
+a fresh `lake/` (except the second run), and ran `python job.py` locally. Durations are the manifest step `duration_s`
+summed per layer; file counts come from `find lake/<layer> -name '*.parquet' | wc -l`.
+
+| Layer | Before (`8e832b`): s | Before: files | After (`404778`): s | After: files | Second run (`1be11b`): s | Second run: files |
+|---|---|---|---|---|---|---|
+| Bronze HR | 8.26 | 7 | 8.33 | 7 | 8.78 | 7 |
+| Bronze learning | 25.53 | 782 | 12.06 | 37 | 12.66 | 37 |
+| Silver HR | 12.18 | 7 | 13.38 | 7 | 13.12 | 7 |
+| Silver learning | 24.01 | 111 | 12.28 | 37 | 11.13 | 37 |
+| Quarantine | — | 15 | — | 1 | — | 2 (one folder per run_id) |
+| Gold | 11.64 | 10 | 12.41 | 10 | 11.81 | 10 |
+| **Run total** | **96.04** | **932** | **75.32** | **99** | **70.03** | **100** |
+
+- **Same results:** all 26 steps of the after-run (`20261015T200502Z-404778`) match the earlier run
+  `20261015T194137Z-c917c2` on status, every count and every note. The before-run (`20261015T200013Z-8e832b`) used
+  the previous code (commit 0520438).
+- **Idempotent:** the second run on the same lake (`20261015T200647Z-1be11b`) matches `404778` on all 26 steps.
+  The Gold content hashes of all 10 datasets are identical, computed the same way as `tests/test_pipeline.py::_content_hash`.
+- **Tests:** `tests/test_stages.py::test_files_written_and_monthly_layout` checks `files_written == 1` for every step on
+  the mini dataset, the `year=2024/month=03` Bronze layout with no `day=` folder, and a single quarantine file.
 
 ## Cloud run (EKS)
 
