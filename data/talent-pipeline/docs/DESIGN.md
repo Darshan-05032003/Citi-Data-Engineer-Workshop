@@ -33,7 +33,7 @@ Gold (one function per dataset) → manifest → `main()`. Nothing runs at impor
   docs stay outside the job.
 - **`pyspark==3.5.0` only.** This matches the cloud image (Spark 3.5.0, Python 3.11, Java 17, Hadoop 3.3.4).
   `hadoop-aws:3.3.4` is added only when a path starts with `s3a://`. No Iceberg, and no pandas in the job.
-- **Config from environment variables only:** `IS_LOCAL`, `SOURCE_DIR`, `LAKE_ROOT` (plus `AWS_REGION` in cloud).
+- **Config from environment variables only:** `IS_LOCAL`, `SOURCE_DIR`, `LAKE_ROOT` (plus `AWS_REGION` in cloud), `SOURCE_MODE` (`files` default or `postgres`) and `POSTGRES_HOST/PORT/NAME/USER/PASS/SCHEMA`. The database password comes only from the environment (a Kubernetes Secret in the cluster); it is never logged, put in a URL or written to the manifest.
 - **All IO through Spark**, including the manifest, so a local path and `s3a://` behave the same way.
 - **Declarative DQ rules.** Each `Rule(rule_id, entity, column, severity, condition, description)` is generated
   from the schema contract (not-null, cast, unique PK, FK) or from the source CHECK constraints (domains, ranges).
@@ -117,8 +117,8 @@ Bronze checklist:
 
 **The small-file problem.** The source has 29,868 learning events in 783 daily files, about 38 events per day. Partitioning
 Bronze by day therefore produced 782 parquet files of about 9 KB each, and Silver wrote about 3 files per month. On S3,
-every file costs list, open, write and commit-rename (copy plus delete) requests. The cloud run spent about 13 min in
-Bronze learning and about 6.5 min in Silver learning, of 25 min in total.
+every file costs list, open, write and commit-rename (copy plus delete) requests. The cloud run spent about 13.7 min in
+Bronze learning and about 6.5 min in Silver learning, of 24.6 min in total.
 
 **What changed** (layout and caching only; row counts and Gold values are identical):
 - **Bronze learning:** partitioned by `year/month`, with `repartition(year, month)` so each month is exactly one file
@@ -142,7 +142,8 @@ Bronze learning and about 6.5 min in Silver learning, of 25 min in total.
 | Gold (10 datasets) | 11.64 | 10 | 12.41 | 10 |
 | **Run total** | **96.04** | **932** | **75.32** | **99** |
 
-- Parquet files fell by 89% (932 → 99). The two learning steps run about 2× faster, and the run as a whole about 22% faster.
+- Parquet files fell by 89% (932 → 99). The 99 are the 98 files written by the 26 steps (the manifest's `files_written`)
+  plus 1 quarantine file, which is not a step. The two learning steps run about 2× faster, and the run as a whole about 22% faster.
 - Local disk hides most of the per-file cost; on S3 each avoided file saves several HTTP requests. **Measured in the cloud**
   (run `20261015T225127Z-da8bc6`): Bronze learning 1.5 min and Silver learning 1.1 min, versus about 13.7 and 6.5 min before
   the change (run `20261015T084021Z-13ec40`, from its log timestamps); whole run 6.1 min versus 24.6 min.

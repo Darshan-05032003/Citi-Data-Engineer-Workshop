@@ -1,6 +1,6 @@
 # Test evidence
 
-Run date (UTC): 2026-10-15 · branch: feature/talent-pipeline · Python 3.11.0rc1 · PySpark 3.5.0 · Java 17 (venv activate)
+Run date (UTC): 2026-10-15 · branch: feature/talent-pipeline · Python 3.11.0rc1 (VDI system Python; CI uses 3.11 final) · PySpark 3.5.0 · Java 17 (venv activate)
 
 ## Command
 ```
@@ -19,7 +19,7 @@ SKIPPED [1] tests/test_cloud_smoke.py:56 and :69: cloud smoke test: set CLOUD_SM
 
 ## Numbers verified by the integration test
 
-Values copied from `tests/test_pipeline_integration.py` `EXPECTED` and the latest local manifest (`lake/_runs/run_id=20261015T055916Z-0b2e43`, status SUCCESS). All are asserted by `test_expected_numbers` / `test_rerun_is_idempotent`, which passed in the run above.
+Values copied from `tests/test_pipeline_integration.py` `EXPECTED` and the latest local manifest (run `20261015T225511Z-d46925`, status SUCCESS, 26 steps identical to the final cloud run, see "Cloud run (EKS)"). All are asserted by `test_expected_numbers` / `test_rerun_is_idempotent`, which passed in the run above.
 
 | Metric | Value | Source |
 |---|---|---|
@@ -35,7 +35,7 @@ Values copied from `tests/test_pipeline_integration.py` `EXPECTED` and the lates
 | G4 completion without enrollment (pairs) | 3,255 | EXPECTED |
 | G5 attrition risk Low / Medium / High | 1,077/612/311 | EXPECTED['risk'] |
 | G6 teams with projects / project_count | 27 / 33 | EXPECTED |
-| Gold rows: employee_performance_history, employee_performance_summary, employee_competency_gaps, team_performance_outcomes, competency_distribution, learning_progress, learning_summary, promotion_readiness, attrition_risk_context, attrition_by_trend | 4,000, 2,000, 4,000, 100, 400, 25,009, 2,000, 2,000, 2,000, 9 | manifest gold.* rows_written (run 20261015T055916Z-0b2e43) |
+| Gold rows: employee_performance_history, employee_performance_summary, employee_competency_gaps, team_performance_outcomes, competency_distribution, learning_progress, learning_summary, promotion_readiness, attrition_risk_context, attrition_by_trend | 4,000, 2,000, 4,000, 100, 400, 25,009, 2,000, 2,000, 2,000, 9 | manifest gold.* rows_written (run 20261015T225511Z-d46925) |
 
 ## Unit coverage
 
@@ -70,7 +70,7 @@ Before the mini-dataset tests, unit coverage was 58%. Still uncovered:
 - `main()`'s "could not write manifest" branch (1493-1495);
 - `sys.exit(main())` under `__main__` (1502).
 
-The real-dataset run after these changes, `20261015T194137Z-c917c2` (SUCCESS, 95.99 s, code_version `d6d5cdadaaa6`),
+An earlier real-dataset run (before the Bronze layout change), `20261015T194137Z-c917c2` (SUCCESS, 95.99 s, code_version `d6d5cdadaaa6`),
 matched the previous local run `20261015T081756Z-03a037` on all 26 steps: status, all counts and notes.
 
 **Mini dataset (hand-computed expectations, asserted by the layer tests through `conftest.py::run`):**
@@ -159,10 +159,11 @@ after: none missing). New in this change, 11 tests (73 unit + 2 cloud; 69 → 80
 | `test_postgres_password_is_never_logged_on_success` / `..._when_main_fails` | with `POSTGRES_PASS` set, the value is absent from log output (caplog), stdout/stderr and the manifest, including the retry and failure paths |
 | `test_cloud_smoke.py` (2 tests) | newest cloud manifest is SUCCESS with 26 steps and no FAILED step; Gold row counts and headline numbers equal the expected values |
 
-**Cloud smoke, run once on 2026-10-15** (read-only; `source ENVIRONMENT.config`, then `CLOUD_SMOKE=1 LAKE_ROOT=s3a://coding-workshop-datalake-f2a96bad/lake pytest -q -m cloud`):
+**Cloud smoke test** (read-only; `source ENVIRONMENT.config`, then `CLOUD_SMOKE=1 LAKE_ROOT=s3a://coding-workshop-datalake-f2a96bad/lake pytest -q -m cloud`):
 - without `CLOUD_SMOKE`: 2 skipped;
 - with `CLOUD_SMOKE=1` but a non-S3 `LAKE_ROOT`: fails with "CLOUD_SMOKE=1 needs LAKE_ROOT=s3a://bucket/prefix";
-- against the deployed lake: **2 passed in 4.5 s** (newest run `20261015T095920Z-649058`).
+- against the deployed lake: **2 passed**. First on the earlier run `20261015T095920Z-649058` (4.5 s); the final cloud run
+  `20261015T225127Z-da8bc6` passed 2/2 as well (see "Cloud run (EKS)").
 
 CI runs the unit tests with `-m "not integration and not cloud"`; the integration job's `pytest -q -m integration` does not select the `cloud` marker.
 
@@ -173,11 +174,13 @@ or the workflow file changes, and on manual dispatch. Permissions are `contents:
 
 | Job | Runs | Fails when |
 |---|---|---|
-| `unit` | Python 3.11 + Temurin Java 17; `pip install -r requirements-dev.txt`; `pytest -q -m "not integration" --cov=job --cov-report=term --cov-fail-under=90` | any unit test fails or `job.py` coverage < 90% |
+| `unit` | Python 3.11 + Temurin Java 17; `pip install -r requirements-dev.txt`; `pytest -q -m "not integration and not cloud" --cov=job --cov-report=term --cov-fail-under=90` | any unit test fails or `job.py` coverage < 90% |
 | `integration` (needs `unit`, 20 min timeout) | same setup, plus a `postgres:17` service container (health-checked with `pg_isready`, throwaway CI-only credentials in the job `env`, not GitHub secrets) and `REQUIRE_POSTGRES=1`; installs `postgresql-client` only if `psql`/`pg_isready` are missing; `bash scripts/fetch_dataset.sh` (download + sha256 check); `bash scripts/load_source_postgres.sh`; `pytest -q -m integration` (includes the files-vs-postgres parity test) | the dataset can't be fetched or verified (clear `::error` annotation: "Dataset download failed … not a pipeline test failure"), Postgres is unreachable (the parity test fails instead of skipping), or any integration test fails |
 | `security` | `pip install bandit==1.7.10`; `bandit -r job.py -ll` | bandit finds a medium or high severity issue |
 
-**The same commands, run locally** (2026-10-15, before the first push of the workflow):
+**CI runs on GitHub:** the workflow has run on every push since it was added ([runs page](https://github.com/Darshan-05032003/Citi-Data-Engineer-Workshop/actions/workflows/talent-pipeline.yml)). The latest run, [38821504089](https://github.com/Darshan-05032003/Citi-Data-Engineer-Workshop/actions/runs/38821504089) for commit `2c696e9`, passed all three jobs: `unit` (coverage gate step ✓, 98.13% locally), `integration` ("Load HR tables into the Postgres service" ✓ and "Integration tests (includes the files-vs-postgres parity test)" ✓, against a `postgres:17` service) and `security` ("Bandit scan of job.py" ✓). Job times: unit about 1m43s, integration about 4m33s, security 8s.
+
+**Earlier local run of the same commands** (2026-10-15, before the first push of the workflow; later figures are in the sections above):
 
 ```
 $ pytest -q -m "not integration" --cov=job --cov-report=term --cov-fail-under=90
@@ -226,7 +229,7 @@ summed per layer; file counts come from `find lake/<layer> -name '*.parquet' | w
 
 ## Cloud run (EKS)
 
-Final cloud run of the current code, after the file-layout change (F4) and everything since:
+Final cloud run of the current code, after the file-layout change and everything since:
 
 - run_id `20261015T225127Z-da8bc6` · status **SUCCESS** · duration **368.0 s** · started 2026-10-15T22:51:27.079243+00:00
   · `code_version` **75d99c812e4f**: Helm adds a leading newline to job.py in the ConfigMap; sha256("\n"+job.py) = 75d99c812e4f
@@ -236,7 +239,7 @@ Final cloud run of the current code, after the file-layout change (F4) and every
 - Before the run, only `lake/bronze/learning_activity/` was cleared in S3 (782 objects in the old `year/month/day` layout,
   checked with `--dryrun` first); `source/`, `_runs/` and the other layers were kept.
 - **Comparison: 26 of 26 manifest steps match** a fresh local files-mode run (`20261015T225511Z-d46925`, 73.5 s) on status, every
-  count, every note (quarantine/warning counts by rule) and `files_written` (98 parquet files in total).
+  count, every note (quarantine/warning counts by rule) and `files_written` (98 parquet files written by the steps; with the 1 quarantine file the lake holds 99).
 - **Cloud smoke test** on this run: `2 passed, 78 deselected in 4.14s`
   (`CLOUD_SMOKE=1 LAKE_ROOT=s3a://coding-workshop-datalake-f2a96bad/lake pytest -q -m cloud`; it reads the newest manifest, `20261015T225127Z-da8bc6`).
 - **Full local suite** the same day: `78 passed, 2 skipped in 404.99s (0:06:44)` (the 2 skipped are the cloud tests, run separately above).
@@ -296,8 +299,8 @@ README, "Notebook data source"). The first run used the default local lake; the 
 
 | Mode | Lake | Run line (cell 3) | Errors | Charts |
 |---|---|---|---|---|
-| Local | `../lake` | `run_id=20261015T200647Z-1be11b  status=SUCCESS  duration_s=70.025` | 0 | 7 |
-| S3 | `s3://coding-workshop-datalake-f2a96bad/lake` | `run_id=20261015T095920Z-649058  status=SUCCESS  duration_s=1452.405` | 0 | 7 |
+| Local (earlier run) | `../lake` | `run_id=20261015T200647Z-1be11b  status=SUCCESS  duration_s=70.025` | 0 | 7 |
+| S3 (earlier run) | `s3://coding-workshop-datalake-f2a96bad/lake` | `run_id=20261015T095920Z-649058  status=SUCCESS  duration_s=1452.405` | 0 | 7 |
 
 - **All 7 finding sentences** (cells 6, 10, 14, 18, 22, 26, 30) are **identical** between the two modes, checked by
   comparing the printed text. They are also identical to the outputs committed before this change.

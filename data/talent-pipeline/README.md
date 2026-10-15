@@ -52,7 +52,7 @@ flowchart LR
 ```bash
 cd data/talent-pipeline
 source .venv/bin/activate        # Python 3.11, pyspark 3.5.0; activate sets JAVA_HOME=Java 17 and unsets SPARK_HOME
-python job.py                    # full run, ~75 s (latest run manifest); writes ./lake
+python job.py                    # full run, ~74 s (latest run manifest); writes ./lake
 pytest -q                        # 73 unit + 5 integration + 2 cloud (skipped) = 80 tests (~6 min; the Postgres parity test skips without POSTGRES_* env)
 cd notebooks && jupyter nbconvert --to notebook --execute --inplace talent_insights.ipynb
 jupyter nbconvert --to html --output-dir ../docs talent_insights.ipynb
@@ -79,6 +79,10 @@ hand-made mini dataset (`tests/fixtures/mini_source/`) through one shared fixtur
 unit tests with a 90% coverage gate → integration tests on the downloaded, sha256-checked dataset, including the files-vs-postgres
 parity test, which runs against a `postgres:17` service container (throwaway CI-only credentials) and **fails instead of skipping**
 if Postgres is unavailable (`REQUIRE_POSTGRES=1`); bandit scan of `job.py` (medium+ fails).
+
+**CI evidence:** the [workflow runs page](https://github.com/Darshan-05032003/Citi-Data-Engineer-Workshop/actions/workflows/talent-pipeline.yml) lists every run. The latest, for the final commit
+([run 38821504089](https://github.com/Darshan-05032003/Citi-Data-Engineer-Workshop/actions/runs/38821504089)), is green: `unit` (73 tests, coverage gate 90%; local coverage 98.13%), `integration` (real dataset,
+including the files-vs-postgres parity test against Postgres 17 with the loader script) and `security` (bandit, no medium/high issues).
 
 ## Cloud deployment
 
@@ -240,7 +244,7 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 - **Two HR source modes.** `files` (default) reads the CSVs from `SOURCE_DIR`; `postgres` reads the same tables over JDBC and
   casts every column to string, so Bronze, Silver and Gold are identical (see [docs/DESIGN.md](docs/DESIGN.md#source-modes)).
 - **Few, larger files.** Bronze learning is partitioned by month (not day: ~38 events/day would give ~9 KB files), each partition and
-  small table is one file, and inputs are read once (cached): 932 → 99 parquet files per run ([docs/DESIGN.md](docs/DESIGN.md#performance)).
+  small table is one file, and inputs are read once (cached): 932 → 99 parquet files per run, i.e. 98 written by the steps + 1 quarantine file ([docs/DESIGN.md](docs/DESIGN.md#performance)).
 - **Idempotent re-runs.** Bronze overwrites only its own partition (dynamic overwrite); Silver and Gold are full overwrites.
   The integration test runs the job twice and checks identical counts, no duplicate keys and identical Gold content hashes.
 
@@ -250,8 +254,8 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 - Projects link only to teams (27 of 100) and have no dates; there is no "key competency" flag and no course-to-competency mapping.
 - Counts after Silver differ slightly from raw profiling: 38 `notes` events after dedupe, 3,255 completion-without-enrollment
   employee×course pairs (39 lines / 3,262 in raw profiling; see [docs/DESIGN.md](docs/DESIGN.md#reference-numbers)).
-- **Postgres source mode is implemented and verified locally and in CI** (PostgreSQL 17; files-vs-postgres parity: 26/26 steps,
-  10/10 Gold content hashes).
+- **Postgres source mode is implemented and verified locally and in CI** (PostgreSQL 18.6 locally, 17 in CI; files-vs-postgres
+  parity: 26/26 steps, 10/10 Gold content hashes).
 - **The cloud job runs files mode**, because Aurora cannot be reached from EKS and the workshop role cannot open the port: the
   EKS node's security group is not allowed into Aurora's on 5432, and a `--dry-run` of
   `aws ec2 authorize-security-group-ingress` on Aurora's security group (2026-10-15) failed with `UnauthorizedOperation`:
@@ -259,7 +263,7 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
   Nothing was applied.
 - **Production fix:** allow TCP 5432 from the EKS cluster security group (or use security groups for pods) into Aurora's
   security group, and supply the database password from AWS Secrets Manager through IRSA instead of the job's Secret.
-- The cloud job uses short-lived credentials in a Kubernetes Secret instead of IRSA; a cloud run is slow (~24–25 min) and its pod
+- The cloud job uses short-lived credentials in a Kubernetes Secret instead of IRSA; a cloud run takes ~6 min (368 s) and its pod
   logs are deleted 30 min after it finishes, so the run manifest in S3 is the durable record.
 
 ## How to verify
