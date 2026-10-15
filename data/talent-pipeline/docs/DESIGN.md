@@ -126,6 +126,26 @@ Bronze learning and about 6.5 min in Silver learning, of 25 min in total.
 - **Give the pod 2 CPUs:** `local[2]` currently shares 1 CPU.
 - **Bake pyspark into the image:** skips the ~300 MB pip install at start-up (about 30 s).
 
+## Notebook data source
+
+The notebook (`notebooks/talent_insights.ipynb`) reads only the Gold datasets and the newest run manifest.
+
+**One loader for both modes.**
+- `LAKE_ROOT` is read from the environment: a local folder (default `../lake`) or `s3://bucket/prefix`, with `s3a://`
+  also accepted. This is the same variable `job.py` uses.
+- A `pyarrow.fs` filesystem is chosen once: `LocalFileSystem`, or `S3FileSystem` with the region from `AWS_REGION`
+  (default `ap-south-1`).
+- `gold(name)` uses `pd.read_parquet(..., filesystem=FS)` and keeps the Decimal→float conversion.
+- `latest_manifest()` picks the highest `run_id=` folder under `_runs/` and parses its JSON text file.
+- Spark's `_SUCCESS` and `.crc` files are ignored by pyarrow.
+
+**Credentials.** The notebook never contains credentials and never writes. In S3 mode it uses the standard AWS
+environment or profile chain, which is `source ENVIRONMENT.config` in this workshop. The exact commands are in the README
+("Notebook data source").
+
+**Why direct S3 reads.** The guide asks the notebook to connect to S3 and load Gold. Reading in place shows the cloud
+run's actual output, without first downloading a copy (`lake_cloud/`). Both modes produce identical findings.
+
 ## Recorded vs derived
 
 **Recorded** values keep their source names and are never recalculated: `rating`, `review_period`,

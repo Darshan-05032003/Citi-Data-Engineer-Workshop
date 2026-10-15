@@ -196,3 +196,19 @@ aws s3 ls s3://coding-workshop-datalake-f2a96bad/lake/_runs/
 aws s3 cp s3://coding-workshop-datalake-f2a96bad/lake/_runs/run_id=20261015T084021Z-13ec40/part-00000-<id>-c000.txt -
 aws s3 ls s3://coding-workshop-datalake-f2a96bad/source/ --recursive | wc -l
 ```
+
+## Notebook: local vs S3
+
+The same notebook was executed twice on 2026-10-15 with `jupyter nbconvert --to notebook --execute` (commands in the
+README, "Notebook data source"). The first run used the default local lake; the second ran from a scratch copy with
+`LAKE_ROOT=s3://coding-workshop-datalake-f2a96bad/lake`, after `source ENVIRONMENT.config`.
+
+| Mode | Lake | Run line (cell 3) | Errors | Charts |
+|---|---|---|---|---|
+| Local | `../lake` | `run_id=20261015T200647Z-1be11b  status=SUCCESS  duration_s=70.025` | 0 | 7 |
+| S3 | `s3://coding-workshop-datalake-f2a96bad/lake` | `run_id=20261015T095920Z-649058  status=SUCCESS  duration_s=1452.405` | 0 | 7 |
+
+- **All 7 finding sentences** (cells 6, 10, 14, 18, 22, 26, 30) are **identical** between the two modes, checked by
+  comparing the printed text. They are also identical to the outputs committed before this change.
+- The S3-executed copy was not committed, and nothing was written to S3. No credential-like strings appear in either copy
+  or in `talent_insights.html`.

@@ -92,6 +92,29 @@ kubectl logs -f job/coding-workshop-talent-pipeline                             
 - **Result:** runs `20261015T071439Z-9de56f` and `20261015T084021Z-13ec40` succeeded; all 26 manifest steps match the local run
   (see [Cloud run (EKS)](docs/test_evidence.md#cloud-run-eks)).
 
+## Notebook data source
+
+The notebook reads Gold and the newest run manifest from `LAKE_ROOT`. This is an environment variable, the same one `job.py` uses:
+
+| Mode | `LAKE_ROOT` | Reader |
+|---|---|---|
+| Local (default) | unset, which means `../lake` relative to `notebooks/` | `pyarrow.fs.LocalFileSystem` |
+| S3 | `s3://coding-workshop-datalake-f2a96bad/lake` (`s3a://` also accepted) | `pyarrow.fs.S3FileSystem`, region from `AWS_REGION` (default `ap-south-1`) |
+
+The notebook never contains credentials. In S3 mode it uses the standard AWS environment or profile chain, and it only reads.
+
+```bash
+# local (re-executes the committed notebook in place)
+cd data/talent-pipeline/notebooks && jupyter nbconvert --to notebook --execute --inplace talent_insights.ipynb
+
+# S3, from the repo root; writes a copy so the committed notebook keeps its local outputs
+source ENVIRONMENT.config && unset AWS_ENDPOINT_URL AWS_ENDPOINT_URL_S3 && cd data/talent-pipeline/notebooks && \
+  LAKE_ROOT=s3://coding-workshop-datalake-f2a96bad/lake jupyter nbconvert --to notebook --execute --output-dir /tmp/nb_s3 talent_insights.ipynb
+```
+
+Both modes give identical findings. In S3 mode the run line shows the cloud run `20261015T095920Z-649058`
+([test evidence](docs/test_evidence.md#notebook-local-vs-s3)).
+
 ## Configuration (environment variables only)
 
 | Variable | Default | Meaning |
