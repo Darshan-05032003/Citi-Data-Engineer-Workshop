@@ -81,8 +81,9 @@ Gold (one function per dataset) → manifest → `main()`. Nothing runs at impor
 **Loading the source.**
 - `scripts/load_source_postgres.sh` recreates the schema (`DROP … CASCADE; CREATE`) and runs the dataset's **unedited**
   `load.sh` with `PGOPTIONS='-c search_path=<schema>'`. The same environment variables work locally and against Aurora.
-- **Cloud gap (checked 2026-10-15):** the EKS node's security group cannot reach Aurora on port 5432, so the cloud job
-  keeps files mode until a network rule is added. That is an infra change, planned separately.
+- **Cloud:** the cloud job runs files mode. EKS cannot reach Aurora on 5432, and the workshop role explicitly denies
+  `ec2:AuthorizeSecurityGroupIngress` (dry-run, 2026-10-15), so the rule cannot be added here. Production would add that rule
+  (or use security groups for pods) and take the password from Secrets Manager via IRSA. See the README, "Known limitations".
 
 ## Observability and error handling
 

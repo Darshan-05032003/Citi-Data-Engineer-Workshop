@@ -235,8 +235,15 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 - Projects link only to teams (27 of 100) and have no dates; there is no "key competency" flag and no course-to-competency mapping.
 - Counts after Silver differ slightly from raw profiling: 38 `notes` events after dedupe, 3,255 completion-without-enrollment
   employee×course pairs (39 lines / 3,262 in raw profiling; see [docs/DESIGN.md](docs/DESIGN.md#reference-numbers)).
-- Postgres mode is verified locally only: in the cloud, the EKS node's security group cannot reach Aurora on port 5432
-  (checked 2026-10-15), so the cloud job still uses files mode until that network rule is added.
+- **Postgres source mode is implemented and verified locally and in CI** (PostgreSQL 17; files-vs-postgres parity: 26/26 steps,
+  10/10 Gold content hashes).
+- **The cloud job runs files mode**, because Aurora cannot be reached from EKS and the workshop role cannot open the port: the
+  EKS node's security group is not allowed into Aurora's on 5432, and a `--dry-run` of
+  `aws ec2 authorize-security-group-ingress` on Aurora's security group (2026-10-15) failed with `UnauthorizedOperation`:
+  `You are not authorized to perform this operation. User: arn:aws:sts::332991882156:assumed-role/coding-workshop-assume-ap-south-1-f2a96bad/lambda_session is not authorized to perform: ec2:AuthorizeSecurityGroupIngress on resource: arn:aws:ec2:ap-south-1:332991882156:security-group/sg-0a86fb52894403a4c with an explicit deny in an identity-based policy.`
+  Nothing was applied.
+- **Production fix:** allow TCP 5432 from the EKS cluster security group (or use security groups for pods) into Aurora's
+  security group, and supply the database password from AWS Secrets Manager through IRSA instead of the job's Secret.
 - The cloud job uses short-lived credentials in a Kubernetes Secret instead of IRSA; a cloud run is slow (~24–25 min) and its pod
   logs are deleted 30 min after it finishes, so the run manifest in S3 is the durable record.
 

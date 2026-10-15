@@ -92,6 +92,18 @@ matched the previous local run `20261015T081756Z-03a037` on all 26 steps: status
 | Gold rows | history 11, summary 6, gaps 7, teams 3, competency_distribution 6, learning_progress 5, learning_summary 6, promotion_readiness 6, attrition_context 6, attrition_by_trend 5 |
 | Gold values | trend improving/declining/stable/null 3/1/1/1; gaps −1/0/1/2 = 1/3/1/2; High + Ready Now 2; completion without enrollment 1; 1 team with projects (2 projects) |
 
+## Cloud Postgres access check
+
+On 2026-10-15 the EKS job's route to Aurora was checked and found closed (P0: `pg_isready` from a pod and from the VDI got no
+response; Aurora's security group accepts only its own members). To test whether the missing rule could be added, one dry run
+was made. It makes no change: `aws ec2 authorize-security-group-ingress --group-id sg-0a86fb52894403a4c --protocol tcp --port 5432
+--source-group <EKS cluster SG> --dry-run`. Result (encoded authorization message omitted):
+
+`You are not authorized to perform this operation. User: arn:aws:sts::332991882156:assumed-role/coding-workshop-assume-ap-south-1-f2a96bad/lambda_session is not authorized to perform: ec2:AuthorizeSecurityGroupIngress on resource: arn:aws:ec2:ap-south-1:332991882156:security-group/sg-0a86fb52894403a4c with an explicit deny in an identity-based policy.`
+
+The workshop role explicitly denies the action, so the cloud job stays in files mode. No infra change was applied, and the draft
+Terraform change (commit `009ef77`) was reverted (`21a1b20`). Postgres mode itself is covered by the local and CI parity tests below.
+
 ## PostgreSQL source mode
 
 Local PostgreSQL 18.6, database `postgres`, schema `hr_source`, run on 2026-10-15.
