@@ -236,7 +236,7 @@ def _pg_env() -> dict:
 def test_files_and_postgres_modes_give_identical_results(spark, tmp_path) -> None:
     """Load the real HR CSVs into Postgres with the loader script, run job.py in both modes:
     every step count and every Gold content hash must match."""
-    from tests.test_pipeline import EXPECTED, _latest_manifest, _run_job, _snapshot
+    from tests.test_pipeline_integration import EXPECTED, _latest_manifest, _run_job, _snapshot
 
     env = _pg_env()
     load = subprocess.run(["bash", "scripts/load_source_postgres.sh"], cwd=JOB_DIR,

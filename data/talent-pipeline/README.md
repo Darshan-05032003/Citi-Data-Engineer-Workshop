@@ -53,14 +53,27 @@ flowchart LR
 cd data/talent-pipeline
 source .venv/bin/activate        # Python 3.11, pyspark 3.5.0; activate sets JAVA_HOME=Java 17 and unsets SPARK_HOME
 python job.py                    # full run, ~75 s (latest run manifest); writes ./lake
-pytest -q                        # 64 unit + 5 integration = 69 tests (~6 min; the Postgres parity test skips without POSTGRES_* env)
+pytest -q                        # 73 unit + 5 integration + 2 cloud (skipped) = 80 tests (~6 min; the Postgres parity test skips without POSTGRES_* env)
 cd notebooks && jupyter nbconvert --to notebook --execute --inplace talent_insights.ipynb
 jupyter nbconvert --to html --output-dir ../docs talent_insights.ipynb
 ```
 
-Run only the fast tests with `pytest -q -m "not integration"` (~70 s). They include in-process Bronze → Silver → Gold runs on a
-hand-made mini dataset (`tests/fixtures/mini_source/`), the source guards (`tests/test_guards.py`) and give 98% line coverage of `job.py`:
-`pytest -q -m "not integration" --cov=job --cov-report=term-missing`.
+### Tests
+
+Tests are organised by pipeline layer (all under `tests/`). Fast tests: `pytest -q -m "not integration and not cloud"` (~95 s,
+73 tests, 98% line coverage of `job.py` with `--cov=job --cov-report=term-missing`). They run Bronze → Silver → Gold **in-process** on a
+hand-made mini dataset (`tests/fixtures/mini_source/`) through one shared fixture (`conftest.py::run`).
+
+| File | Layer | What it proves | How to run |
+|---|---|---|---|
+| `test_validators.py` | DQ rules | not-null, unique, cast, FK, domain, regex rules; warnings keep rows | `pytest -q tests/test_validators.py` |
+| `test_bronze.py` | Config + Bronze | config and Spark settings (S3A retries only for s3a), raw landing as strings, one file per month, lineage columns, source guards (schema drift, empty files, no learning files) | `pytest -q tests/test_bronze.py` |
+| `test_silver.py` | Silver | typing, quarantine with all reasons, dedupe before validation, warnings, newest Bronze partition, lineage | `pytest -q tests/test_silver.py` |
+| `test_gold.py` | Gold | each dataset's logic (trend, gap severity, no fan-out, completion), row counts and grain uniqueness, lineage | `pytest -q tests/test_gold.py` |
+| `test_observability.py` | Manifest + logs | manifest fields and write/read-back, reconciliation, every step logs its counts, failure path, the password never appears in logs | `pytest -q tests/test_observability.py` |
+| `test_postgres.py`, `test_postgres_gate.py` | Postgres source | config, JDBC settings, retry, Bronze from a fake JDBC source; files-vs-postgres parity on a real server (skips without `POSTGRES_*`; fails with `REQUIRE_POSTGRES=1`) | `pytest -q tests/test_postgres.py tests/test_postgres_gate.py` |
+| `test_pipeline_integration.py` | End to end | `job.py` on the real dataset, run twice: expected numbers, reconciliation, idempotency | `pytest -q -m integration` (~3 min) |
+| `test_cloud_smoke.py` | Cloud | newest cloud manifest is SUCCESS with 26 steps, and the Gold key numbers equal the expected ones; read-only; skipped unless `CLOUD_SMOKE=1` | `CLOUD_SMOKE=1 LAKE_ROOT=s3a://<bucket>/lake pytest -q -m cloud` (after `source ENVIRONMENT.config`) |
 
 **CI** ([`.github/workflows/talent-pipeline.yml`](../../.github/workflows/talent-pipeline.yml), on every push/PR touching this folder):
 unit tests with a 90% coverage gate → integration tests on the downloaded, sha256-checked dataset, including the files-vs-postgres
@@ -249,7 +262,7 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 
 ## How to verify
 
-- [`docs/test_evidence.md`](docs/test_evidence.md): exact test command, full pytest output (69 passed), unit coverage (98%) and the tables of numbers asserted by the tests.
+- [`docs/test_evidence.md`](docs/test_evidence.md): exact test command, full pytest output (78 passed, 2 cloud tests skipped), unit coverage (98%) and the tables of numbers asserted by the tests.
 - [`docs/source_to_target.md`](docs/source_to_target.md): column mapping per layer with the rule IDs applied.
 - [`notebooks/talent_insights.ipynb`](notebooks/talent_insights.ipynb) / [`docs/talent_insights.html`](docs/talent_insights.html): findings for Q1–Q7.
 - The latest run manifest: `lake/_runs/run_id=<id>/` (status, code version, source sizes, per-step counts and timings,

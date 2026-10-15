@@ -7,17 +7,19 @@ Run date (UTC): 2026-10-15 · branch: feature/talent-pipeline · Python 3.11.0rc
 cd data/talent-pipeline && source .venv/bin/activate && pytest -q
 ```
 
-Covers 64 unit tests (`tests/test_rules.py` 15, `tests/test_stages.py` 23, `tests/test_guards.py` 8, `tests/test_postgres.py` 12, `tests/test_postgres_gate.py` 6; see [Unit coverage](#unit-coverage)) and 5 integration tests: 4 in `tests/test_pipeline.py` (marker `integration`) and the files-vs-postgres parity test in `tests/test_postgres.py` (markers `integration` + `postgres`; this run had `REQUIRE_POSTGRES=1` and `POSTGRES_NAME/USER/PASS` set for the local server, so it ran instead of skipping). The integration fixture runs `python job.py` twice into one temporary LAKE_ROOT on the real dataset and checks every expected number ([DESIGN.md](DESIGN.md#reference-numbers)), per-step reconciliation (bronze/silver), and re-run idempotency (equal counts, no duplicate keys, identical Gold content hashes).
+Covers 73 unit tests, 5 integration tests and 2 cloud tests, organised by layer (file → tests: `test_validators.py` 3, `test_bronze.py` 18, `test_silver.py` 6, `test_gold.py` 18, `test_observability.py` 10, `test_postgres.py` 12, `test_postgres_gate.py` 6; see [Unit coverage](#unit-coverage) and the table in the README). Integration: 4 in `tests/test_pipeline_integration.py` (marker `integration`) and the files-vs-postgres parity test in `tests/test_postgres.py` (markers `integration` + `postgres`; this run had `REQUIRE_POSTGRES=1` and `POSTGRES_NAME/USER/PASS` set for the local server, so it ran instead of skipping). Cloud: `tests/test_cloud_smoke.py` (marker `cloud`, skipped here). The integration fixture runs `python job.py` twice into one temporary LAKE_ROOT on the real dataset and checks every expected number ([DESIGN.md](DESIGN.md#reference-numbers)), per-step reconciliation (bronze/silver), and re-run idempotency (equal counts, no duplicate keys, identical Gold content hashes).
 
 ## Output
 ```
-.....................................................................    [100%]
-69 passed in 304.13s (0:05:04)
+..................ss....................................................
+........
+SKIPPED [1] tests/test_cloud_smoke.py:56 and :69: cloud smoke test: set CLOUD_SMOKE=1 and LAKE_ROOT=s3a://bucket/prefix to run it
+78 passed, 2 skipped in 370.12s (0:06:10)
 ```
 
 ## Numbers verified by the integration test
 
-Values copied from `tests/test_pipeline.py` `EXPECTED` and the latest local manifest (`lake/_runs/run_id=20261015T055916Z-0b2e43`, status SUCCESS). All are asserted by `test_expected_numbers` / `test_rerun_is_idempotent`, which passed in the run above.
+Values copied from `tests/test_pipeline_integration.py` `EXPECTED` and the latest local manifest (`lake/_runs/run_id=20261015T055916Z-0b2e43`, status SUCCESS). All are asserted by `test_expected_numbers` / `test_rerun_is_idempotent`, which passed in the run above.
 
 | Metric | Value | Source |
 |---|---|---|
@@ -37,13 +39,13 @@ Values copied from `tests/test_pipeline.py` `EXPECTED` and the latest local mani
 
 ## Unit coverage
 
-The integration tests run `job.py` in a subprocess, so coverage does not count them. `tests/test_stages.py` therefore runs
+The integration tests run `job.py` in a subprocess, so coverage does not count them. the in-process tests (shared fixture `conftest.py::run`) therefore run
 `ingest_into_bronze` → `transform_to_silver` → `aggregate_to_gold` → `write_manifest` **in-process** on a hand-made mini
 dataset (`tests/fixtures/mini_source/`, real file formats). It also covers the remaining branches: config parsing, `spark_conf`,
 `read_latest_bronze_hr` (newest of 2 ingest dates / no partitions), duplicate Gold keys, the `main()` failure path, and the
 manifest's observability fields (`code_version`, `spark_version`, source bytes, per-step `duration_s`/`rows_per_s`).
 
-`tests/test_guards.py` (8 tests) checks the source guards on edited copies of the mini dataset:
+The source guards in `tests/test_bronze.py` (8 tests) are checked on edited copies of the mini dataset:
 - a missing column fails and names the column, both directly and end to end through `main()` with a FAILED manifest;
 - an extra column only warns and is kept;
 - a header-only CSV fails, and so does a 0-byte CSV;
@@ -51,13 +53,14 @@ manifest's observability fields (`code_version`, `spark_version`, source bytes, 
 - the S3A retry settings appear only for `s3a://` paths.
 
 ```
-cd data/talent-pipeline && source .venv/bin/activate && pytest -q -m "not integration" --cov=job --cov-report=term-missing
+cd data/talent-pipeline && source .venv/bin/activate && pytest -q -m "not integration and not cloud" --cov=job --cov-report=term --cov-fail-under=90
 Name     Stmts   Miss  Cover   Missing
 --------------------------------------
-job.py     536     10    98%   471, 839, 967, 1481-1483, 1493-1495, 1502
+job.py     536     10    98%
 --------------------------------------
 TOTAL      536     10    98%
-58 passed, 5 deselected in 71.38s (0:01:11)
+Required test coverage of 90% reached. Total coverage: 98.13%
+73 passed, 7 deselected in 94.73s (0:01:34)
 ```
 
 Before the mini-dataset tests, unit coverage was 58%. Still uncovered:
@@ -70,7 +73,7 @@ Before the mini-dataset tests, unit coverage was 58%. Still uncovered:
 The real-dataset run after these changes, `20261015T194137Z-c917c2` (SUCCESS, 95.99 s, code_version `d6d5cdadaaa6`),
 matched the previous local run `20261015T081756Z-03a037` on all 26 steps: status, all counts and notes.
 
-**Mini dataset (hand-computed expectations, asserted by `test_stages.py`):**
+**Mini dataset (hand-computed expectations, asserted by the layer tests through `conftest.py::run`):**
 - HR: 3 teams, 3 competencies, 6 employees, 2 projects on team 1, 12 reviews, 8 assessments, 6 talent rows.
 - HR error rows:
   - review 12 has rating 7, so it is quarantined by `performance_reviews.rating.domain`;
@@ -126,7 +129,7 @@ The password does not appear in the log (checked with grep: 0 matches).
 
 **Files vs postgres**, same code, two fresh lakes:
 - **26/26 manifest steps match:** status, every count, every note and `files_written`.
-- **10/10 Gold content hashes match**, computed with `tests/test_pipeline.py::_content_hash`.
+- **10/10 Gold content hashes match**, computed with `tests/test_pipeline_integration.py::_content_hash`.
 - The Postgres manifest records `source_mode=postgres` and HR rows teams 100, competencies 40, employees 2000,
   projects 33, performance_reviews 4000, competency_assessments 4000, talent_review 2000.
 - `tests/test_postgres.py::test_files_and_postgres_modes_give_identical_results` asserts the same automatically.
@@ -138,6 +141,30 @@ The password does not appear in the log (checked with grep: 0 matches).
   - Bronze written as strings, with postgres lineage
   - failures: missing settings, unreachable database, missing table, schema drift, empty table
 - **Bandit 1.7.10** on `job.py`: no issues.
+
+## Test organisation, lineage, logs and cloud smoke
+
+Tests are grouped by layer (README, "Tests"); the 69 earlier tests were moved without edits (collected ids compared before and
+after: none missing). New in this change, 11 tests (73 unit + 2 cloud; 69 → 80):
+
+| Test | Proves |
+|---|---|
+| `test_bronze_hr_lineage_columns_are_present_and_non_null` | all 7 Bronze HR tables carry `_run_id`, `_ingested_at`, `_source_system`, `_source_file` (non-null; `file`, ends with `<table>.csv`) |
+| `test_bronze_learning_lineage_columns_are_present_and_non_null` | Bronze learning keeps `_run_id`, `_ingested_at`, `_source_file`, `_line_no`, `_record_hash` (sha256, 64 chars) |
+| `test_silver_lineage_columns_are_present_and_non_null` | Silver HR and learning rows keep the lineage and are stamped with this run's `_run_id` |
+| `test_gold_lineage_columns_are_present_and_non_null` | all 10 Gold datasets carry `_gold_run_id` and `_built_at` |
+| `test_manifest_lineage_fields_are_present_and_non_null` | the manifest, in memory and as written, has run id, times, `code_version` (= `job.code_version()`), `spark_version`, source dir, mode |
+| `test_every_step_logs_its_counts` | each of the 26 steps has exactly one log line with the same counts, `files_written` and `duration_s` |
+| `test_run_log_has_only_the_expected_warning` | no ERROR; the only WARNING is the empty learning file |
+| `test_postgres_password_is_never_logged_on_success` / `..._when_main_fails` | with `POSTGRES_PASS` set, the value is absent from log output (caplog), stdout/stderr and the manifest, including the retry and failure paths |
+| `test_cloud_smoke.py` (2 tests) | newest cloud manifest is SUCCESS with 26 steps and no FAILED step; Gold row counts and headline numbers equal the expected values |
+
+**Cloud smoke, run once on 2026-10-15** (read-only; `source ENVIRONMENT.config`, then `CLOUD_SMOKE=1 LAKE_ROOT=s3a://coding-workshop-datalake-f2a96bad/lake pytest -q -m cloud`):
+- without `CLOUD_SMOKE`: 2 skipped;
+- with `CLOUD_SMOKE=1` but a non-S3 `LAKE_ROOT`: fails with "CLOUD_SMOKE=1 needs LAKE_ROOT=s3a://bucket/prefix";
+- against the deployed lake: **2 passed in 4.5 s** (newest run `20261015T095920Z-649058`).
+
+CI runs the unit tests with `-m "not integration and not cloud"`; the integration job's `pytest -q -m integration` does not select the `cloud` marker.
 
 ## CI
 
@@ -193,8 +220,8 @@ summed per layer; file counts come from `find lake/<layer> -name '*.parquet' | w
   `20261015T194137Z-c917c2` on status, every count and every note. The before-run (`20261015T200013Z-8e832b`) used
   the previous code (commit 0520438).
 - **Idempotent:** the second run on the same lake (`20261015T200647Z-1be11b`) matches `404778` on all 26 steps.
-  The Gold content hashes of all 10 datasets are identical, computed the same way as `tests/test_pipeline.py::_content_hash`.
-- **Tests:** `tests/test_stages.py::test_files_written_and_monthly_layout` checks `files_written == 1` for every step on
+  The Gold content hashes of all 10 datasets are identical, computed the same way as `tests/test_pipeline_integration.py::_content_hash`.
+- **Tests:** `tests/test_bronze.py::test_files_written_and_monthly_layout` checks `files_written == 1` for every step on
   the mini dataset, the `year=2024/month=03` Bronze layout with no `day=` folder, and a single quarantine file.
 
 ## Cloud run (EKS)

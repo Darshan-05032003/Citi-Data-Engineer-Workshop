@@ -43,7 +43,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
       - name: Unit tests with coverage gate
-        run: pytest -q -m "not integration" --cov=job --cov-report=term --cov-fail-under=90
+        run: pytest -q -m "not integration and not cloud" --cov=job --cov-report=term --cov-fail-under=90
 
   integration:
     name: integration (real dataset, job.py run twice)

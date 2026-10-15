@@ -213,7 +213,7 @@ recorded `attrition_risk`, not a prediction.
 
 ## Reference numbers
 
-These are the expected results on the workshop dataset. `tests/test_pipeline.py` asserts them, and the cloud run
+These are the expected results on the workshop dataset. `tests/test_pipeline_integration.py` asserts them, and the cloud run
 matches them (see `test_evidence.md`).
 
 | Area | Expected |
