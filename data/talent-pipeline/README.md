@@ -53,7 +53,7 @@ flowchart LR
 cd data/talent-pipeline
 source .venv/bin/activate        # Python 3.11, pyspark 3.5.0; activate sets JAVA_HOME=Java 17 and unsets SPARK_HOME
 python job.py                    # full run, ~75 s (latest run manifest); writes ./lake
-pytest -q                        # 46 unit + 4 integration = 50 tests (integration runs the job twice, ~4 min)
+pytest -q                        # 58 unit + 5 integration = 63 tests (~6 min; the Postgres parity test skips without POSTGRES_* env)
 cd notebooks && jupyter nbconvert --to notebook --execute --inplace talent_insights.ipynb
 jupyter nbconvert --to html --output-dir ../docs talent_insights.ipynb
 ```
@@ -122,10 +122,39 @@ Both modes give identical findings. In S3 mode the run line shows the cloud run 
 | `IS_LOCAL` | `true` | Local run flag (recorded in the manifest) |
 | `SOURCE_DIR` | `../../sampleData/data-engineering-sample-performance-scenario/data-engineering-performance-talent-management` (relative to `job.py`) | Folder with the 7 CSVs and `learning_activity/` |
 | `LAKE_ROOT` | `<job.py folder>/lake` | Lake root; local path or `s3a://bucket` |
+| `SOURCE_MODE` | `files` | Where the 7 HR tables come from: `files` (CSVs in `SOURCE_DIR`) or `postgres` (JDBC). Learning events always come from `SOURCE_DIR`. |
+| `POSTGRES_HOST` / `POSTGRES_PORT` | `localhost` / `5432` | Postgres server (postgres mode) |
+| `POSTGRES_NAME` / `POSTGRES_USER` / `POSTGRES_PASS` | — (required in postgres mode) | Database, user, password; the password is never logged or written to the manifest |
+| `POSTGRES_SCHEMA` | `hr_source` | Schema holding the HR tables |
 
 `org.apache.hadoop:hadoop-aws:3.3.4` and explicit S3A retry/backoff settings (`fs.s3a.attempts.maximum=10`,
-`fs.s3a.retry.limit=7`, `fs.s3a.retry.interval=500ms`) are added to Spark only when `SOURCE_DIR` or `LAKE_ROOT` starts with `s3a://`.
-Nothing runs at import time; all config is read in `main()`.
+`fs.s3a.retry.limit=7`, `fs.s3a.retry.interval=500ms`) are added to Spark only when `SOURCE_DIR` or `LAKE_ROOT` starts with `s3a://`;
+`org.postgresql:postgresql:42.7.4` only when `SOURCE_MODE=postgres`. Nothing runs at import time; all config is read in `main()`.
+
+## PostgreSQL source (SOURCE_MODE=postgres)
+
+The 7 HR tables can be read from PostgreSQL over JDBC instead of the CSV files. The learning events still come from files.
+The Bronze contract stays the same: every column is cast to string. Silver and Gold are therefore unchanged, and the
+results are identical to files mode (26/26 steps, 10/10 Gold content hashes; see
+[test evidence](docs/test_evidence.md#postgresql-source-mode)).
+
+```bash
+cd data/talent-pipeline
+export POSTGRES_HOST=localhost POSTGRES_PORT=5432 POSTGRES_NAME=postgres POSTGRES_USER=postgres
+export POSTGRES_PASS=...           # from your local setup; never commit it
+scripts/load_source_postgres.sh    # idempotent: DROP/CREATE SCHEMA hr_source, then the dataset's own load.sh; prints 7 row counts
+SOURCE_MODE=postgres python job.py
+POSTGRES_NAME=… POSTGRES_USER=… POSTGRES_PASS=… pytest -q -m postgres   # files-vs-postgres parity test (skips without these vars)
+```
+
+- **SSL:** `IS_LOCAL=false` adds `sslmode=require` (Aurora). The JDBC URL never contains credentials.
+- **Connection:** the job probes the connection first, retrying with backoff (1 try + 4 retries, 2/4/8/16 s, ~30 s), which
+  covers Aurora Serverless resuming from 0 ACU. `connectTimeout=10` stops a dead host from hanging a try.
+- **Guards:** the same checks as files mode run before anything is written (missing settings or table, schema drift,
+  0 rows). The manifest records `source_mode`, and `source.hr.<table>.rows` per table.
+- **Lineage:** `_source_system=postgres`, `_source_file=postgres://host:port/db.schema.table`.
+- The loader never edits `load.sh` or `schema.sql`. It points `search_path` at the schema via `PGOPTIONS`. The original
+  `load.sh` passes the password inside psql's connection string, so it is briefly visible in `ps` while loading.
 
 ## Lake layout
 
@@ -191,7 +220,8 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 - **Example's structure.** Function names follow the example job: `create_spark_session`, `ingest_into_bronze`, `transform_to_silver`, `aggregate_to_gold`, `main`. No Iceberg.
 - **Single `job.py`.** The cloud Helm job receives only `job.py` + `requirements.txt`; tests, notebook and docs stay local.
 - **`pyspark==3.5.0`** in `requirements.txt` (nothing else) to match the cloud image (Spark 3.5.0, Python 3.11, Java 17).
-- **Files instead of Postgres.** Bronze reads the CSVs and JSONL directly from `SOURCE_DIR` (see [docs/DESIGN.md](docs/DESIGN.md)).
+- **Two HR source modes.** `files` (default) reads the CSVs from `SOURCE_DIR`; `postgres` reads the same tables over JDBC and
+  casts every column to string, so Bronze, Silver and Gold are identical (see [docs/DESIGN.md](docs/DESIGN.md#source-modes)).
 - **Few, larger files.** Bronze learning is partitioned by month (not day: ~38 events/day would give ~9 KB files), each partition and
   small table is one file, and inputs are read once (cached): 932 → 99 parquet files per run ([docs/DESIGN.md](docs/DESIGN.md#performance)).
 - **Idempotent re-runs.** Bronze overwrites only its own partition (dynamic overwrite); Silver and Gold are full overwrites.
@@ -203,13 +233,14 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 - Projects link only to teams (27 of 100) and have no dates; there is no "key competency" flag and no course-to-competency mapping.
 - Counts after Silver differ slightly from raw profiling: 38 `notes` events after dedupe, 3,255 completion-without-enrollment
   employee×course pairs (39 lines / 3,262 in raw profiling; see [docs/DESIGN.md](docs/DESIGN.md#reference-numbers)).
-- Postgres/JDBC sources are not implemented: both environments read files from `SOURCE_DIR`.
+- Postgres mode is verified locally only: in the cloud, the EKS node's security group cannot reach Aurora on port 5432
+  (checked 2026-10-15), so the cloud job still uses files mode until that network rule is added.
 - The cloud job uses short-lived credentials in a Kubernetes Secret instead of IRSA; a cloud run is slow (~24–25 min) and its pod
   logs are deleted 30 min after it finishes, so the run manifest in S3 is the durable record.
 
 ## How to verify
 
-- [`docs/test_evidence.md`](docs/test_evidence.md): exact test command, full pytest output (50 passed), unit coverage (98%) and the tables of numbers asserted by the tests.
+- [`docs/test_evidence.md`](docs/test_evidence.md): exact test command, full pytest output (63 passed), unit coverage (98%) and the tables of numbers asserted by the tests.
 - [`docs/source_to_target.md`](docs/source_to_target.md): column mapping per layer with the rule IDs applied.
 - [`notebooks/talent_insights.ipynb`](notebooks/talent_insights.ipynb) / [`docs/talent_insights.html`](docs/talent_insights.html): findings for Q1–Q7.
 - The latest run manifest: `lake/_runs/run_id=<id>/` (status, code version, source sizes, per-step counts and timings,

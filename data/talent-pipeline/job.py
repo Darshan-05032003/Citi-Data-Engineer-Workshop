@@ -41,6 +41,9 @@ S3A_RETRY_CONF = {
     "spark.hadoop.fs.s3a.retry.limit": "7",
     "spark.hadoop.fs.s3a.retry.interval": "500ms",
 }
+POSTGRES_JDBC_PACKAGE = "org.postgresql:postgresql:42.7.4"
+SOURCE_MODES = ("files", "postgres")
+PG_CONNECT_ATTEMPTS = 5  # 1 try + 4 retries, 2/4/8/16 s backoff (~30 s): Aurora resuming from 0 ACU
 
 
 # =============================================================================
@@ -54,6 +57,14 @@ class Config:
     source_dir: str
     lake_root: str
     aws_region: Optional[str] = None
+    # HR source: "files" (CSVs in source_dir) or "postgres" (JDBC); learning events are always files.
+    source_mode: str = "files"
+    pg_host: str = "localhost"
+    pg_port: int = 5432
+    pg_name: Optional[str] = None
+    pg_user: Optional[str] = None
+    pg_password: Optional[str] = field(default=None, repr=False)  # never logged or written
+    pg_schema: str = "hr_source"
 
 
 def _parse_bool(value: str) -> bool:
@@ -62,14 +73,70 @@ def _parse_bool(value: str) -> bool:
 
 
 def load_config(env: Optional[Mapping[str, str]] = None) -> Config:
-    """Build a Config from env vars (IS_LOCAL, SOURCE_DIR, LAKE_ROOT, AWS_REGION)."""
+    """Build a Config from env vars (IS_LOCAL, SOURCE_DIR, LAKE_ROOT, AWS_REGION,
+    SOURCE_MODE, POSTGRES_HOST/PORT/NAME/USER/PASS/SCHEMA)."""
     env = os.environ if env is None else env
+    source_mode = env.get("SOURCE_MODE", "files").strip().lower()
+    if source_mode not in SOURCE_MODES:
+        raise ValueError(f"SOURCE_MODE must be one of {SOURCE_MODES}, got {source_mode!r}")
     return Config(
         is_local=_parse_bool(env.get("IS_LOCAL", "true")),
         source_dir=env.get("SOURCE_DIR", str(DEFAULT_SOURCE_DIR)),
         lake_root=env.get("LAKE_ROOT", str(DEFAULT_LAKE_ROOT)).rstrip("/"),
         aws_region=env.get("AWS_REGION") or None,
+        source_mode=source_mode,
+        pg_host=env.get("POSTGRES_HOST") or "localhost",
+        pg_port=int(env.get("POSTGRES_PORT") or 5432),
+        pg_name=env.get("POSTGRES_NAME") or None,
+        pg_user=env.get("POSTGRES_USER") or None,
+        pg_password=env.get("POSTGRES_PASS") or None,
+        pg_schema=env.get("POSTGRES_SCHEMA") or "hr_source",
     )
+
+
+def jdbc_url(cfg: Config) -> str:
+    """JDBC URL without credentials; sslmode=require outside local runs (Aurora requires SSL)."""
+    url = f"jdbc:postgresql://{cfg.pg_host}:{cfg.pg_port}/{cfg.pg_name}"
+    return url if cfg.is_local else f"{url}?sslmode=require"
+
+
+def jdbc_properties(cfg: Config) -> dict[str, str]:
+    """Credentials and driver settings for spark.read.jdbc (kept out of the URL and logs).
+
+    connectTimeout (seconds) stops a dead host from hanging a connection attempt.
+    """
+    return {
+        "user": cfg.pg_user or "",
+        "password": cfg.pg_password or "",
+        "driver": "org.postgresql.Driver",
+        "connectTimeout": "10",
+    }
+
+
+def with_retry(
+    fn: Any,
+    log: logging.Logger,
+    what: str,
+    attempts: int = 5,
+    base_delay: float = 2.0,
+    sleep: Any = None,
+) -> Any:
+    """Call fn(); on failure retry with exponential backoff (2, 4, 8, 16 s by default).
+
+    1 try + 4 retries covers an Aurora Serverless v2 cluster resuming from 0 ACU.
+    The last error is re-raised.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 - any connection error is retried
+            if attempt == attempts:
+                raise
+            delay = base_delay * 2 ** (attempt - 1)
+            log.warning("%s failed (attempt %d/%d: %s); retrying in %.0f s",
+                        what, attempt, attempts, type(exc).__name__, delay)
+            (sleep or time.sleep)(delay)
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 # =============================================================================
@@ -94,7 +161,8 @@ def get_logger(run_id: str) -> logging.Logger:
 # 3. Spark session
 # =============================================================================
 def spark_conf(cfg: Config) -> dict[str, str]:
-    """Spark settings; hadoop-aws, S3A retries (+ regional endpoint) only for s3a:// paths."""
+    """Spark settings; hadoop-aws, S3A retries (+ regional endpoint) only for s3a:// paths;
+    the PostgreSQL JDBC driver only when SOURCE_MODE=postgres."""
     conf = {
         "spark.driver.memory": "1g",
         "spark.sql.shuffle.partitions": "4",
@@ -102,11 +170,16 @@ def spark_conf(cfg: Config) -> dict[str, str]:
         "spark.ui.enabled": "false",
         "spark.ui.showConsoleProgress": "false",
     }
+    packages = []
     if any(p.startswith("s3a://") for p in (cfg.source_dir, cfg.lake_root)):
-        conf["spark.jars.packages"] = HADOOP_AWS_PACKAGE
+        packages.append(HADOOP_AWS_PACKAGE)
         conf.update(S3A_RETRY_CONF)
         if cfg.aws_region:
             conf["spark.hadoop.fs.s3a.endpoint"] = f"s3.{cfg.aws_region}.amazonaws.com"
+    if cfg.source_mode == "postgres":
+        packages.append(POSTGRES_JDBC_PACKAGE)
+    if packages:
+        conf["spark.jars.packages"] = ",".join(packages)
     return conf
 
 
@@ -393,6 +466,33 @@ def read_hr_csv(spark: SparkSession, source_dir: str, table: str) -> DataFrame:
     )
 
 
+def _jdbc_table(spark: SparkSession, cfg: Config, dbtable: str) -> DataFrame:
+    """The single JDBC access point (a table name or a '(subquery) AS alias')."""
+    return spark.read.jdbc(jdbc_url(cfg), dbtable, properties=jdbc_properties(cfg))
+
+
+def postgres_source_name(cfg: Config, table: str) -> str:
+    """Lineage value for a Postgres table: postgres://host:port/db.schema.table (no credentials)."""
+    return f"postgres://{cfg.pg_host}:{cfg.pg_port}/{cfg.pg_name}.{cfg.pg_schema}.{table}"
+
+
+def read_hr_postgres(spark: SparkSession, cfg: Config, table: str) -> DataFrame:
+    """Read one HR table via JDBC with every column cast to string.
+
+    This keeps the Bronze contract identical to the CSV path (raw strings), so Silver's
+    casts and DQ rules and every Gold dataset are unchanged.
+    """
+    df = _jdbc_table(spark, cfg, f"{cfg.pg_schema}.{table}")
+    return df.select([F.col(c).cast("string").alias(c) for c in df.columns])
+
+
+def read_hr_source(spark: SparkSession, cfg: Config, table: str) -> DataFrame:
+    """One HR table from the configured source mode, all columns as strings."""
+    if cfg.source_mode == "postgres":
+        return read_hr_postgres(spark, cfg, table)
+    return read_hr_csv(spark, cfg.source_dir, table)
+
+
 def add_lineage(df: DataFrame, run_id: str, ingested_at: datetime) -> DataFrame:
     """Append the run id and ingest timestamp to every row."""
     return df.withColumn("_run_id", F.lit(run_id)).withColumn(
@@ -468,12 +568,48 @@ def count_parquet(spark: SparkSession, glob_path: str) -> int:
 def validate_sources(
     spark: SparkSession, cfg: Config, log: logging.Logger, manifest: "RunManifest"
 ) -> list[str]:
-    """Check every source before Bronze writes anything; record sizes in manifest.source.
+    """Check every source before Bronze writes anything; record them in manifest.source.
 
-    Fails the run on a missing or 0-byte CSV, a CSV header missing a schema.sql column,
-    or no learning files. Extra CSV columns only warn (they are kept in Bronze).
-    Returns the learning file paths.
+    Fails the run on: a missing or 0-byte CSV (files mode); missing Postgres settings, no
+    connection after retries, or a missing table (postgres mode); an HR header missing a
+    schema.sql column (both modes); no learning files. Extra HR columns only warn (they are
+    kept in Bronze). Returns the learning file paths.
     """
+    if cfg.source_mode == "postgres":
+        _validate_hr_postgres(spark, cfg, log, manifest)
+    else:
+        _validate_hr_files(spark, cfg, log, manifest)
+
+    landing = f"{cfg.source_dir}/{LEARNING_DIR}"
+    sizes = file_sizes(spark, f"{landing}/{LEARNING_GLOB}")
+    if not sizes:
+        _fail(manifest, "bronze.learning_activity", f"no learning files under {landing}")
+    manifest.source["learning_activity"] = {"files": len(sizes), "bytes": sum(sizes.values())}
+    log.info("bronze: sources ok (HR from %s), learning files=%d bytes=%d",
+             cfg.source_mode, len(sizes), sum(sizes.values()))
+    return list(sizes)
+
+
+def _check_header(
+    manifest: "RunManifest", log: logging.Logger, table: str, label: str, header: list[str]
+) -> list[str]:
+    """Schema drift check against HR_COLUMNS: missing columns fail, extra ones warn.
+
+    Returns the extra columns.
+    """
+    missing = [c for c in HR_COLUMNS[table] if c not in header]
+    if missing:
+        _fail(manifest, f"bronze.hr.{table}", f"schema drift in {label}: missing columns {missing}")
+    extra = [c for c in header if c not in HR_COLUMNS[table]]
+    if extra:
+        log.warning("schema drift in %s: extra columns %s kept in Bronze", label, extra)
+    return extra
+
+
+def _validate_hr_files(
+    spark: SparkSession, cfg: Config, log: logging.Logger, manifest: "RunManifest"
+) -> None:
+    """Files mode: each HR CSV exists, is not empty, and has every schema.sql column."""
     for table in HR_TABLES:
         step = f"bronze.hr.{table}"
         path = f"{cfg.source_dir}/{table}.csv"
@@ -484,25 +620,38 @@ def validate_sources(
         if size == 0:
             _fail(manifest, step, f"{table}.csv is empty (0 bytes): {path}")
         header = read_hr_csv(spark, cfg.source_dir, table).columns
-        missing = [c for c in HR_COLUMNS[table] if c not in header]
-        if missing:
-            _fail(manifest, step, f"schema drift in {table}.csv: missing columns {missing}")
-        extra = [c for c in header if c not in HR_COLUMNS[table]]
-        if extra:
-            log.warning("schema drift in %s.csv: extra columns %s kept in Bronze", table, extra)
+        extra = _check_header(manifest, log, table, f"{table}.csv", header)
         manifest.source[f"hr.{table}"] = {"bytes": size, "extra_columns": extra}
 
-    landing = f"{cfg.source_dir}/{LEARNING_DIR}"
-    sizes = file_sizes(spark, f"{landing}/{LEARNING_GLOB}")
-    if not sizes:
-        _fail(manifest, "bronze.learning_activity", f"no learning files under {landing}")
-    manifest.source["learning_activity"] = {"files": len(sizes), "bytes": sum(sizes.values())}
-    log.info(
-        "bronze: sources ok, hr bytes=%d, learning files=%d bytes=%d",
-        sum(v["bytes"] for k, v in manifest.source.items() if k.startswith("hr.")),
-        len(sizes), sum(sizes.values()),
-    )
-    return list(sizes)
+
+def _validate_hr_postgres(
+    spark: SparkSession, cfg: Config, log: logging.Logger, manifest: "RunManifest"
+) -> None:
+    """Postgres mode: settings present, connection up (with retries), every table readable
+    with every schema.sql column. Row counts are added to manifest.source during ingest."""
+    step = "bronze.hr.connection"
+    missing = [name for name, value in (("POSTGRES_NAME", cfg.pg_name),
+                                        ("POSTGRES_USER", cfg.pg_user),
+                                        ("POSTGRES_PASS", cfg.pg_password)) if not value]
+    if missing:
+        _fail(manifest, step, f"SOURCE_MODE=postgres needs env vars {missing}")
+    where = f"{cfg.pg_host}:{cfg.pg_port}/{cfg.pg_name}"
+    try:
+        with_retry(lambda: _jdbc_table(spark, cfg, "(SELECT 1 AS ok) AS probe").collect(),
+                   log, f"postgres connection to {where}", attempts=PG_CONNECT_ATTEMPTS)
+    except Exception as exc:  # noqa: BLE001 - reported as a FAILED step
+        _fail(manifest, step, f"cannot connect to postgres {where} after "
+                              f"{PG_CONNECT_ATTEMPTS} attempts ({type(exc).__name__})")
+    for table in HR_TABLES:
+        label = f"{cfg.pg_schema}.{table}"
+        try:
+            header = read_hr_postgres(spark, cfg, table).columns
+        except Exception as exc:  # noqa: BLE001 - reported as a FAILED step
+            _fail(manifest, f"bronze.hr.{table}",
+                  f"source table not found or unreadable: {label} ({type(exc).__name__})")
+        extra = _check_header(manifest, log, table, label, header)
+        manifest.source[f"hr.{table}"] = {"rows": None, "extra_columns": extra}
+    log.info("bronze: postgres source %s schema=%s ok", where, cfg.pg_schema)
 
 
 def _partition_key(path: str) -> str:
@@ -519,17 +668,22 @@ def ingest_into_bronze(
     ingest_date = ingested_at.date().isoformat()  # UTC date of the run
     listed = validate_sources(spark, cfg, log, manifest)
 
+    from_pg = cfg.source_mode == "postgres"
     for table in HR_TABLES:
         manifest.start_step()
-        src = read_hr_csv(spark, cfg.source_dir, table)
+        src = read_hr_source(spark, cfg, table)
         rows_read = src.count()
         if rows_read == 0:
-            _fail(manifest, f"bronze.hr.{table}",
-                  f"{table}.csv has 0 data rows: {cfg.source_dir}/{table}.csv")
+            where = (f"{cfg.pg_schema}.{table} has 0 data rows" if from_pg
+                     else f"{table}.csv has 0 data rows: {cfg.source_dir}/{table}.csv")
+            _fail(manifest, f"bronze.hr.{table}", where)
+        if from_pg:
+            manifest.source[f"hr.{table}"]["rows"] = rows_read
         out = add_lineage(src, run_id, ingested_at).withColumns(
             {
-                "_source_system": F.lit("file"),
-                "_source_file": F.input_file_name(),
+                "_source_system": F.lit("postgres" if from_pg else "file"),
+                "_source_file": (F.lit(postgres_source_name(cfg, table)) if from_pg
+                                 else F.input_file_name()),
                 "ingest_date": F.lit(ingest_date),
             }
         )
@@ -1238,6 +1392,7 @@ class RunManifest:
     ended_at: Optional[str] = None
     duration_s: Optional[float] = None
     status: str = "RUNNING"
+    source_mode: str = "files"
     code_version: str = field(default_factory=code_version)
     spark_version: Optional[str] = None
     source: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -1309,10 +1464,12 @@ def main() -> int:
     log = get_logger(run_id)
     cfg = load_config()
     log.info(
-        "start is_local=%s source_dir=%s lake_root=%s", cfg.is_local, cfg.source_dir, cfg.lake_root
+        "start is_local=%s source_mode=%s source_dir=%s lake_root=%s",
+        cfg.is_local, cfg.source_mode, cfg.source_dir, cfg.lake_root,
     )
     manifest = RunManifest(
-        run_id=run_id, is_local=cfg.is_local, source_dir=cfg.source_dir, lake_root=cfg.lake_root
+        run_id=run_id, is_local=cfg.is_local, source_dir=cfg.source_dir, lake_root=cfg.lake_root,
+        source_mode=cfg.source_mode,
     )
     spark: Optional[SparkSession] = None
     exit_code = 0

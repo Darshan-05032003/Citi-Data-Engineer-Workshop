@@ -7,12 +7,12 @@ Run date (UTC): 2026-10-15 · branch: feature/talent-pipeline · Python 3.11.0rc
 cd data/talent-pipeline && source .venv/bin/activate && pytest -q
 ```
 
-Covers 46 unit tests (`tests/test_rules.py` 15, `tests/test_stages.py` 23, `tests/test_guards.py` 8; see [Unit coverage](#unit-coverage)) and 4 integration tests (`tests/test_pipeline.py`, marker `integration`). The integration fixture runs `python job.py` twice into one temporary LAKE_ROOT on the real dataset and checks every expected number ([DESIGN.md](DESIGN.md#reference-numbers)), per-step reconciliation (bronze/silver), and re-run idempotency (equal counts, no duplicate keys, identical Gold content hashes).
+Covers 58 unit tests (`tests/test_rules.py` 15, `tests/test_stages.py` 23, `tests/test_guards.py` 8, `tests/test_postgres.py` 12; see [Unit coverage](#unit-coverage)) and 5 integration tests: 4 in `tests/test_pipeline.py` (marker `integration`) and the files-vs-postgres parity test in `tests/test_postgres.py` (markers `integration` + `postgres`; this run had `POSTGRES_NAME/USER/PASS` set for the local server, so it ran instead of skipping). The integration fixture runs `python job.py` twice into one temporary LAKE_ROOT on the real dataset and checks every expected number ([DESIGN.md](DESIGN.md#reference-numbers)), per-step reconciliation (bronze/silver), and re-run idempotency (equal counts, no duplicate keys, identical Gold content hashes).
 
 ## Output
 ```
-..................................................                       [100%]
-50 passed in 209.78s (0:03:29)
+...............................................................          [100%]
+63 passed in 339.47s (0:05:39)
 ```
 
 ## Numbers verified by the integration test
@@ -54,17 +54,18 @@ manifest's observability fields (`code_version`, `spark_version`, source bytes, 
 cd data/talent-pipeline && source .venv/bin/activate && pytest -q -m "not integration" --cov=job --cov-report=term-missing
 Name     Stmts   Miss  Cover   Missing
 --------------------------------------
-job.py     461      9    98%   685, 813, 1324-1326, 1336-1338, 1345
+job.py     536     10    98%   471, 839, 967, 1481-1483, 1493-1495, 1502
 --------------------------------------
-TOTAL      461      9    98%
-46 passed, 4 deselected in 69.93s (0:01:09)
+TOTAL      536     10    98%
+58 passed, 5 deselected in 71.38s (0:01:11)
 ```
 
 Before the mini-dataset tests, unit coverage was 58%. Still uncovered:
-- the two reconciliation `raise` lines (685, 813);
-- `main()`'s success tail (1324-1326, covered by the integration tests);
-- `main()`'s "could not write manifest" branch (1336-1338);
-- `sys.exit(main())` under `__main__` (1345).
+- the real `spark.read.jdbc` call (471, run by the Postgres parity test in a subprocess);
+- the two reconciliation `raise` lines (839, 967);
+- `main()`'s success tail (1481-1483, covered by the integration tests);
+- `main()`'s "could not write manifest" branch (1493-1495);
+- `sys.exit(main())` under `__main__` (1502).
 
 The real-dataset run after these changes, `20261015T194137Z-c917c2` (SUCCESS, 95.99 s, code_version `d6d5cdadaaa6`),
 matched the previous local run `20261015T081756Z-03a037` on all 26 steps: status, all counts and notes.
@@ -90,6 +91,41 @@ matched the previous local run `20261015T081756Z-03a037` on all 26 steps: status
 | silver.learning_events | 10 / 6 / 3 (malformed 1, not_null 1, event_ts.invalid 1) / 1 / 2 (notes_used 1, before_hire 1) |
 | Gold rows | history 11, summary 6, gaps 7, teams 3, competency_distribution 6, learning_progress 5, learning_summary 6, promotion_readiness 6, attrition_context 6, attrition_by_trend 5 |
 | Gold values | trend improving/declining/stable/null 3/1/1/1; gaps −1/0/1/2 = 1/3/1/2; High + Ready Now 2; completion without enrollment 1; 1 team with projects (2 projects) |
+
+## PostgreSQL source mode
+
+Local PostgreSQL 18.6, database `postgres`, schema `hr_source`, run on 2026-10-15.
+
+**Loader** (`scripts/load_source_postgres.sh`, run twice; both runs gave the same counts):
+```
+Recreating schema hr_source on localhost:5432/postgres
+… (the dataset's own load.sh: CREATE TABLE ×7, CREATE INDEX ×3, COPY per table) …
+Row counts in hr_source:
+teams 100 · competencies 40 · employees 2000 · projects 33 · performance_reviews 4000 · competency_assessments 4000 · talent_review 2000
+```
+
+**Postgres-mode run** (`SOURCE_MODE=postgres python job.py`, scratch lake), last lines:
+```
+INFO … gold: attrition_by_trend rows=9 grain=attrition_risk×derived_rating_trend unique files_written=1 duration_s=1.16 rows_per_s=8
+INFO … manifest written to …/lake_pg/_runs/run_id=20261015T210848Z-3dea60
+INFO … end status=SUCCESS duration_s=57.765
+```
+The password does not appear in the log (checked with grep: 0 matches).
+
+**Files vs postgres**, same code, two fresh lakes:
+- **26/26 manifest steps match:** status, every count, every note and `files_written`.
+- **10/10 Gold content hashes match**, computed with `tests/test_pipeline.py::_content_hash`.
+- The Postgres manifest records `source_mode=postgres` and HR rows teams 100, competencies 40, employees 2000,
+  projects 33, performance_reviews 4000, competency_assessments 4000, talent_review 2000.
+- `tests/test_postgres.py::test_files_and_postgres_modes_give_identical_results` asserts the same automatically.
+  It uses its own schema, `hr_source_pytest`, and drops it afterwards.
+- **Unit tests** (12, no database; a fake JDBC source supplies typed mini tables) cover:
+  - config, JDBC URL/sslmode, `connectTimeout=10`, and the Spark packages per mode
+  - retry: 2/4/8/16 s, 5 attempts, last error raised
+  - the password kept out of the repr, logs and manifest
+  - Bronze written as strings, with postgres lineage
+  - failures: missing settings, unreachable database, missing table, schema drift, empty table
+- **Bandit 1.7.10** on `job.py`: no issues.
 
 ## CI
 

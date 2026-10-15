@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 import pytest
 from pyspark.sql import functions as F
@@ -49,8 +50,8 @@ EXPECTED = {
 }
 
 
-def _run_job(lake: Path) -> tuple[int, float, str]:
-    env = {**os.environ, "LAKE_ROOT": str(lake), "IS_LOCAL": "true"}
+def _run_job(lake: Path, extra_env: Optional[dict] = None) -> tuple[int, float, str]:
+    env = {**os.environ, "LAKE_ROOT": str(lake), "IS_LOCAL": "true", **(extra_env or {})}
     env.pop("SPARK_HOME", None)
     t0 = time.monotonic()
     proc = subprocess.run(

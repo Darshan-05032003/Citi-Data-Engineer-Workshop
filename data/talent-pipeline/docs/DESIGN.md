@@ -26,8 +26,9 @@ Gold (one function per dataset) → manifest → `main()`. Nothing runs at impor
 
 ## Decisions
 
-- **Files instead of Postgres.** Bronze reads the CSVs and JSONL files directly from `SOURCE_DIR`, so the local
-  and cloud runs share one code path and need no database.
+- **Two HR source modes, one Bronze contract.** `SOURCE_MODE=files` (default) reads the CSVs from `SOURCE_DIR`;
+  `SOURCE_MODE=postgres` reads the same 7 tables over JDBC. Learning events always come from the JSONL files.
+  See "Source modes" below.
 - **A single `job.py`.** The Helm chart ships only `job.py` + `requirements.txt` to the pod. Tests, notebook and
   docs stay outside the job.
 - **`pyspark==3.5.0` only.** This matches the cloud image (Spark 3.5.0, Python 3.11, Java 17, Hadoop 3.3.4).
@@ -51,6 +52,38 @@ Gold (one function per dataset) → manifest → `main()`. Nothing runs at impor
   injected from the deploying shell into a Secret (`envFrom`) and never written to Terraform state. Production
   would use IRSA (an IAM role per service account).
 
+## Source modes
+
+| | `files` (default) | `postgres` |
+|---|---|---|
+| HR tables | `SOURCE_DIR/<table>.csv` | `POSTGRES_SCHEMA.<table>` over JDBC (`org.postgresql:postgresql:42.7.4`, added only in this mode) |
+| Learning events | `SOURCE_DIR/learning_activity/` | same (always files) |
+| Pre-write checks | file exists, not 0 bytes, header has every `schema.sql` column | settings present, connection probe with retry, table readable, every `schema.sql` column |
+| Lineage | `_source_system=file`, `_source_file=<file URI>` | `_source_system=postgres`, `_source_file=postgres://host:port/db.schema.table` |
+| `manifest.source.hr.<table>` | `bytes` | `rows` |
+
+**Why Postgres columns are cast to string in Bronze.**
+- Bronze is the raw landing layer, and the CSV path delivers every column as a string.
+- Casting JDBC columns (int, date, numeric) to string gives Bronze the **same contract in both modes**.
+- As a result, Silver's casts and DQ rules, quarantine and every Gold dataset run unchanged.
+- This is proven on the real dataset: 26/26 manifest steps and 10/10 Gold content hashes are identical between the modes.
+- **Trade-off:** in postgres mode the database has already enforced the types, so Silver's `*.cast` rules can no longer fire.
+  They stay in place for the files path.
+
+**Connection handling.**
+- The JDBC URL holds no credentials; user and password are passed only as JDBC properties.
+- `IS_LOCAL=false` adds `sslmode=require`, which Aurora needs.
+- A probe query (`SELECT 1`) runs before anything else, with 1 try + 4 retries and 2/4/8/16 s backoff (about 30 s).
+  Aurora Serverless v2 at 0 ACU needs that long to resume.
+- `connectTimeout=10` stops a dead host from hanging a try.
+- If the probe still fails, the run records `FAILED bronze.hr.connection` with host, port and database, never the password.
+
+**Loading the source.**
+- `scripts/load_source_postgres.sh` recreates the schema (`DROP … CASCADE; CREATE`) and runs the dataset's **unedited**
+  `load.sh` with `PGOPTIONS='-c search_path=<schema>'`. The same environment variables work locally and against Aurora.
+- **Cloud gap (checked 2026-10-15):** the EKS node's security group cannot reach Aurora on port 5432, so the cloud job
+  keeps files mode until a network rule is added. That is an infra change, planned separately.
+
 ## Observability and error handling
 
 **What is recorded:**
@@ -67,7 +100,7 @@ reason, the manifest status becomes `FAILED`, and the exit code is 1. Silver and
 
 | Workshop error case | Behaviour in this job |
 |---|---|
-| Database connection timeout | No database: sources are files. The S3 equivalent is handled by explicit S3A retries with exponential backoff, for `s3a://` paths only: `fs.s3a.attempts.maximum=10` (AWS SDK retries), `fs.s3a.retry.limit=7`, `fs.s3a.retry.interval=500ms`. These are close to Hadoop 3.3.4's defaults, set explicitly so the policy is visible. If retries run out, the run fails and the manifest is `FAILED`. |
+| Database connection timeout | Postgres mode: a connection probe runs before anything is written, with 1 try + 4 retries and exponential backoff (2/4/8/16 s), plus a 10 s JDBC `connectTimeout`. After that it fails with `FAILED bronze.hr.connection` (see Source modes). For S3, timeouts are handled by explicit S3A retries with exponential backoff, for `s3a://` paths only: `fs.s3a.attempts.maximum=10` (AWS SDK retries), `fs.s3a.retry.limit=7`, `fs.s3a.retry.interval=500ms`. These are close to Hadoop 3.3.4's defaults, set explicitly so the policy is visible. If retries run out, the run fails and the manifest is `FAILED`. |
 | Schema drift / mismatch | Each CSV header is checked against the full column list from `schema.sql` (`HR_COLUMNS`). A **missing** column fails the run with a message naming the columns, e.g. `schema drift in employees.csv: missing columns ['email']`. An **extra** column logs a WARNING, is kept in Bronze, and is listed in `manifest.source`. The guide suggests quarantining the file instead. Failing is chosen because a table without a required column cannot be loaded at all, and loading the other tables would leave Silver inconsistent (foreign keys, before-hire checks). |
 | Malformed / truncated row | Row-level: malformed JSON, bad types, domain and foreign-key violations go to `quarantine/<entity>/run_id=…` with every reason. Valid rows are written. Counts per rule are logged and stored in the manifest. |
 | S3 Access Denied | Not retried. The run fails immediately with the AWS error in the log. The fix is permissions: the Kubernetes Secret credentials here, IRSA in production. If the manifest write itself is denied, the job logs `could not write manifest` and exits 1. |
