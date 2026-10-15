@@ -7,12 +7,12 @@ Run date (UTC): 2026-10-15 · branch: feature/talent-pipeline · Python 3.11.0rc
 cd data/talent-pipeline && source .venv/bin/activate && pytest -q
 ```
 
-Covers 36 unit tests (`tests/test_rules.py` 15, `tests/test_stages.py` 21; see [Unit coverage](#unit-coverage)) and 4 integration tests (`tests/test_pipeline.py`, marker `integration`). The integration fixture runs `python job.py` twice into one temporary LAKE_ROOT on the real dataset and checks every expected number ([DESIGN.md](DESIGN.md#reference-numbers)), per-step reconciliation (bronze/silver), and re-run idempotency (equal counts, no duplicate keys, identical Gold content hashes).
+Covers 45 unit tests (`tests/test_rules.py` 15, `tests/test_stages.py` 22, `tests/test_guards.py` 8; see [Unit coverage](#unit-coverage)) and 4 integration tests (`tests/test_pipeline.py`, marker `integration`). The integration fixture runs `python job.py` twice into one temporary LAKE_ROOT on the real dataset and checks every expected number ([DESIGN.md](DESIGN.md#reference-numbers)), per-step reconciliation (bronze/silver), and re-run idempotency (equal counts, no duplicate keys, identical Gold content hashes).
 
 ## Output
 ```
-........................................                                 [100%]
-40 passed in 241.35s (0:04:01)
+.................................................                        [100%]
+49 passed in 235.45s (0:03:55)
 ```
 
 ## Numbers verified by the integration test
@@ -40,23 +40,34 @@ Values copied from `tests/test_pipeline.py` `EXPECTED` and the latest local mani
 The integration tests run `job.py` in a subprocess, so coverage does not count them. `tests/test_stages.py` therefore runs
 `ingest_into_bronze` → `transform_to_silver` → `aggregate_to_gold` → `write_manifest` **in-process** on a hand-made mini
 dataset (`tests/fixtures/mini_source/`, real file formats). It also covers the remaining branches: config parsing, `spark_conf`,
-`read_latest_bronze_hr` (newest of 2 ingest dates / no partitions), duplicate Gold keys, and the `main()` failure path.
+`read_latest_bronze_hr` (newest of 2 ingest dates / no partitions), duplicate Gold keys, the `main()` failure path, and the
+manifest's observability fields (`code_version`, `spark_version`, source bytes, per-step `duration_s`/`rows_per_s`).
+
+`tests/test_guards.py` (8 tests) checks the source guards on edited copies of the mini dataset:
+- a missing column fails and names the column, both directly and end to end through `main()` with a FAILED manifest;
+- an extra column only warns and is kept;
+- a header-only CSV fails, and so does a 0-byte CSV;
+- no learning files fails, and so do learning files with 0 lines;
+- the S3A retry settings appear only for `s3a://` paths.
 
 ```
 cd data/talent-pipeline && source .venv/bin/activate && pytest -q -m "not integration" --cov=job --cov-report=term-missing
 Name     Stmts   Miss  Cover   Missing
 --------------------------------------
-job.py     395      9    98%   571, 691, 1168-1170, 1180-1182, 1189
+job.py     456      9    98%   668, 789, 1295-1297, 1307-1309, 1316
 --------------------------------------
-TOTAL      395      9    98%
-36 passed, 4 deselected in 63.64s (0:01:03)
+TOTAL      456      9    98%
+45 passed, 4 deselected in 70.51s (0:01:10)
 ```
 
-Before this change, unit coverage was 58% (165 of 395 statements missed). Still uncovered:
-- the two reconciliation `raise` lines (571, 691);
-- `main()`'s success tail (1168-1170, covered by the integration tests);
-- `main()`'s "could not write manifest" branch (1180-1182);
-- `sys.exit(main())` under `__main__` (1189).
+Before the mini-dataset tests, unit coverage was 58%. Still uncovered:
+- the two reconciliation `raise` lines (668, 789);
+- `main()`'s success tail (1295-1297, covered by the integration tests);
+- `main()`'s "could not write manifest" branch (1307-1309);
+- `sys.exit(main())` under `__main__` (1316).
+
+The real-dataset run after these changes, `20261015T194137Z-c917c2` (SUCCESS, 95.99 s, code_version `d6d5cdadaaa6`),
+matched the previous local run `20261015T081756Z-03a037` on all 26 steps: status, all counts and notes.
 
 **Mini dataset (hand-computed expectations, asserted by `test_stages.py`):**
 - HR: 3 teams, 3 competencies, 6 employees, 2 projects on team 1, 12 reviews, 8 assessments, 6 talent rows.

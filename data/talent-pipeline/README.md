@@ -51,13 +51,13 @@ flowchart LR
 cd data/talent-pipeline
 source .venv/bin/activate        # Python 3.11, pyspark 3.5.0; activate sets JAVA_HOME=Java 17 and unsets SPARK_HOME
 python job.py                    # full run, ~90 s (latest run manifest); writes ./lake
-pytest -q                        # 36 unit + 4 integration = 40 tests (integration runs the job twice, ~4 min)
+pytest -q                        # 45 unit + 4 integration = 49 tests (integration runs the job twice, ~4 min)
 cd notebooks && jupyter nbconvert --to notebook --execute --inplace talent_insights.ipynb
 jupyter nbconvert --to html --output-dir ../docs talent_insights.ipynb
 ```
 
-Run only the fast tests with `pytest -q -m "not integration"` (~65 s). They include in-process Bronze → Silver → Gold runs on a
-hand-made mini dataset (`tests/fixtures/mini_source/`) and give 98% line coverage of `job.py`:
+Run only the fast tests with `pytest -q -m "not integration"` (~70 s). They include in-process Bronze → Silver → Gold runs on a
+hand-made mini dataset (`tests/fixtures/mini_source/`), the source guards (`tests/test_guards.py`) and give 98% line coverage of `job.py`:
 `pytest -q -m "not integration" --cov=job --cov-report=term-missing`.
 
 ## Cloud deployment
@@ -95,7 +95,8 @@ kubectl logs -f job/coding-workshop-talent-pipeline                             
 | `SOURCE_DIR` | `../../sampleData/data-engineering-sample-performance-scenario/data-engineering-performance-talent-management` (relative to `job.py`) | Folder with the 7 CSVs and `learning_activity/` |
 | `LAKE_ROOT` | `<job.py folder>/lake` | Lake root; local path or `s3a://bucket` |
 
-`org.apache.hadoop:hadoop-aws:3.3.4` is added to Spark only when `SOURCE_DIR` or `LAKE_ROOT` starts with `s3a://`.
+`org.apache.hadoop:hadoop-aws:3.3.4` and explicit S3A retry/backoff settings (`fs.s3a.attempts.maximum=10`,
+`fs.s3a.retry.limit=7`, `fs.s3a.retry.interval=500ms`) are added to Spark only when `SOURCE_DIR` or `LAKE_ROOT` starts with `s3a://`.
 Nothing runs at import time; all config is read in `main()`.
 
 ## Lake layout
@@ -124,6 +125,17 @@ Nothing runs at import time; all config is read in `main()`.
 
 - HR: 0 rows quarantined. Warnings kept and flagged: 666 reviews whose period ended before hire, 234 assessments
   before hire, 38 learning events using `notes` instead of `text`, 5,161 learning events before hire.
+
+## Observability and error handling
+
+- **Every step logs and records** read / written / quarantined / deduped / warned counts plus `duration_s` and `rows_per_s`, e.g.
+  `INFO run_id=… bronze: hr.employees read=2000 written=2000 duration_s=3.00 rows_per_s=667`.
+- **The run manifest** (`_runs/run_id=<id>/`) also records start/end time, duration, status, `code_version` (sha256 of `job.py`,
+  12 chars; works in the pod without git), `spark_version`, and `source`: byte size of each HR CSV, learning file count and bytes.
+- **Source checks run before Bronze writes anything** and fail the run (manifest `FAILED`, exit code 1, step note gives the reason):
+  missing or 0-byte CSV, a header missing a `schema.sql` column (`schema drift in employees.csv: missing columns ['email']`),
+  a CSV with 0 data rows, no learning files or 0 learning lines. Extra CSV columns only log a WARNING and are kept.
+- How each error case from the workshop guide is handled: [docs/DESIGN.md](docs/DESIGN.md#observability-and-error-handling).
 
 ## Gold datasets
 
@@ -167,9 +179,10 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 
 ## How to verify
 
-- [`docs/test_evidence.md`](docs/test_evidence.md): exact test command, full pytest output (40 passed), unit coverage (98%) and the tables of numbers asserted by the tests.
+- [`docs/test_evidence.md`](docs/test_evidence.md): exact test command, full pytest output (49 passed), unit coverage (98%) and the tables of numbers asserted by the tests.
 - [`docs/source_to_target.md`](docs/source_to_target.md): column mapping per layer with the rule IDs applied.
 - [`notebooks/talent_insights.ipynb`](notebooks/talent_insights.ipynb) / [`docs/talent_insights.html`](docs/talent_insights.html): findings for Q1–Q7.
-- The latest run manifest: `lake/_runs/run_id=<id>/` (status, per-step counts, quarantine and warning counts by rule).
+- The latest run manifest: `lake/_runs/run_id=<id>/` (status, code version, source sizes, per-step counts and timings,
+  quarantine and warning counts by rule).
 - [Cloud run (EKS)](docs/test_evidence.md#cloud-run-eks): cloud manifest vs local manifest, step by step.
 - [`docs/cloud_manifest.json`](docs/cloud_manifest.json) / [`docs/cloud_run_log.txt`](docs/cloud_run_log.txt): manifest and pipeline log of cloud run `20261015T084021Z-13ec40`.

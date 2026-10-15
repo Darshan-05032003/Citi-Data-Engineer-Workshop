@@ -10,7 +10,7 @@ SOURCE_DIR (7 HR CSVs + learning_activity/*.jsonl)
   → Bronze   raw, all strings, + lineage (_run_id, _ingested_at, _source_file …)
   → Silver   typed, validated: errors → quarantine/, warnings → dq_warnings
   → Gold     10 analysis datasets, one grain each (duplicate keys fail the write)
-  → _runs/   manifest JSON: status + per-step read/written/quarantined/deduped/warned
+  → _runs/   manifest JSON: status, code_version, source sizes, per-step counts + timings
 ```
 
 | Layer | Contract |
@@ -50,6 +50,31 @@ Gold (one function per dataset) → manifest → `main()`. Nothing runs at impor
   requires IMDSv2 with hop limit 1, so pods cannot use instance credentials. Short-lived STS credentials are
   injected from the deploying shell into a Secret (`envFrom`) and never written to Terraform state. Production
   would use IRSA (an IAM role per service account).
+
+## Observability and error handling
+
+**What is recorded:**
+- Every step records counts (read, written, quarantined, deduped, warned), `duration_s` and `rows_per_s`. Each step has one
+  log line with all of them, at INFO, WARNING or ERROR level.
+- `rows_per_s` = `rows_read / duration_s` for Bronze and Silver steps, and `rows_written / duration_s` for Gold steps,
+  because Gold steps record no `rows_read`.
+- The manifest adds the run's start, end, duration and status; `code_version`, the first 12 hex characters of the sha256 of
+  `job.py`, which works in the pod without git; `spark_version`; and `source`, the byte size of each HR CSV plus the learning
+  file count and total bytes, taken from Hadoop FileStatus for both local paths and S3.
+
+**What fails the run:** source checks run **before Bronze writes anything**. A failure records a `FAILED` step with the
+reason, the manifest status becomes `FAILED`, and the exit code is 1. Silver and Gold keep the last good run.
+
+| Workshop error case | Behaviour in this job |
+|---|---|
+| Database connection timeout | No database: sources are files. The S3 equivalent is handled by explicit S3A retries with exponential backoff, for `s3a://` paths only: `fs.s3a.attempts.maximum=10` (AWS SDK retries), `fs.s3a.retry.limit=7`, `fs.s3a.retry.interval=500ms`. These are close to Hadoop 3.3.4's defaults, set explicitly so the policy is visible. If retries run out, the run fails and the manifest is `FAILED`. |
+| Schema drift / mismatch | Each CSV header is checked against the full column list from `schema.sql` (`HR_COLUMNS`). A **missing** column fails the run with a message naming the columns, e.g. `schema drift in employees.csv: missing columns ['email']`. An **extra** column logs a WARNING, is kept in Bronze, and is listed in `manifest.source`. The guide suggests quarantining the file instead. Failing is chosen because a table without a required column cannot be loaded at all, and loading the other tables would leave Silver inconsistent (foreign keys, before-hire checks). |
+| Malformed / truncated row | Row-level: malformed JSON, bad types, domain and foreign-key violations go to `quarantine/<entity>/run_id=…` with every reason. Valid rows are written. Counts per rule are logged and stored in the manifest. |
+| S3 Access Denied | Not retried. The run fails immediately with the AWS error in the log. The fix is permissions: the Kubernetes Secret credentials here, IRSA in production. If the manifest write itself is denied, the job logs `could not write manifest` and exits 1. |
+| Zero rows written | Halts: a missing or 0-byte CSV, a CSV with 0 data rows, no learning files, or 0 learning lines all fail the run before anything is written. Every step must also reconcile (`read = written + quarantined + deduped`), and every Gold write checks its grain. |
+
+Bronze checklist: source byte sizes are recorded in the manifest; Bronze learning keeps the source `year=/month=/day=`
+partitions; Bronze HR is partitioned by `ingest_date`, and a re-run overwrites only that day's partition.
 
 ## Recorded vs derived
 

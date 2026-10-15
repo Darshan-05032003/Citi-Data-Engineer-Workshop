@@ -6,6 +6,7 @@ is started only inside main().
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -31,6 +32,15 @@ DEFAULT_SOURCE_DIR = (
 )
 DEFAULT_LAKE_ROOT = JOB_DIR / "lake"
 HADOOP_AWS_PACKAGE = "org.apache.hadoop:hadoop-aws:3.3.4"
+# S3A retries transient S3 errors (throttling, 5xx, connection resets) with exponential
+# backoff starting at retry.interval; attempts.maximum is the AWS SDK's own retry count.
+# Set explicitly (close to Hadoop 3.3.4 defaults) so the policy is visible and reviewable.
+# Access Denied is not retryable and fails fast.
+S3A_RETRY_CONF = {
+    "spark.hadoop.fs.s3a.attempts.maximum": "10",
+    "spark.hadoop.fs.s3a.retry.limit": "7",
+    "spark.hadoop.fs.s3a.retry.interval": "500ms",
+}
 
 
 # =============================================================================
@@ -84,7 +94,7 @@ def get_logger(run_id: str) -> logging.Logger:
 # 3. Spark session
 # =============================================================================
 def spark_conf(cfg: Config) -> dict[str, str]:
-    """Spark settings; hadoop-aws (+ regional S3 endpoint if AWS_REGION) only for s3a:// paths."""
+    """Spark settings; hadoop-aws, S3A retries (+ regional endpoint) only for s3a:// paths."""
     conf = {
         "spark.driver.memory": "1g",
         "spark.sql.shuffle.partitions": "4",
@@ -94,6 +104,7 @@ def spark_conf(cfg: Config) -> dict[str, str]:
     }
     if any(p.startswith("s3a://") for p in (cfg.source_dir, cfg.lake_root)):
         conf["spark.jars.packages"] = HADOOP_AWS_PACKAGE
+        conf.update(S3A_RETRY_CONF)
         if cfg.aws_region:
             conf["spark.hadoop.fs.s3a.endpoint"] = f"s3.{cfg.aws_region}.amazonaws.com"
     return conf
@@ -129,7 +140,29 @@ class Rule:
     description: str
 
 
-# HR source contract, from schema.sql. Columns not in HR_TYPES stay string.
+# HR source contract, from schema.sql: the full ordered column list per table (the CSV
+# header must contain all of them; extra columns are kept with a warning).
+HR_COLUMNS: dict[str, tuple[str, ...]] = {
+    "teams": ("team_id", "name", "department"),
+    "competencies": ("competency_id", "name", "category"),
+    "employees": (
+        "employee_id", "first_name", "last_name", "email", "team_id", "job_level", "hire_date",
+    ),
+    "projects": ("project_id", "name", "team_id", "outcome_status", "outcome_score"),
+    "performance_reviews": (
+        "review_id", "employee_id", "review_period", "rating", "manager_comment",
+        "submitted_date",
+    ),
+    "competency_assessments": (
+        "assessment_id", "employee_id", "competency_id", "proficiency_level",
+        "required_level", "assessed_date",
+    ),
+    "talent_review": (
+        "employee_id", "review_cycle", "potential_rating", "promotion_readiness",
+        "attrition_risk",
+    ),
+}
+# Columns not in HR_TYPES stay string.
 HR_TYPES: dict[str, dict[str, str]] = {
     "teams": {"team_id": "int"},
     "competencies": {"competency_id": "int"},
@@ -370,7 +403,7 @@ def add_lineage(df: DataFrame, run_id: str, ingested_at: datetime) -> DataFrame:
 def read_learning_lines(spark: SparkSession, landing_path: str) -> DataFrame:
     """Every physical line of every JSONL file (blank lines kept), with 1-based _line_no.
 
-    Spark skips 0-byte files here; list_files() is used to find those.
+    Spark skips 0-byte files here; file_sizes() is used to find those.
     """
     files = spark.read.text(f"{landing_path}/{LEARNING_GLOB}", wholetext=True).withColumn(
         "_source_file", F.input_file_name()
@@ -400,14 +433,68 @@ def _glob_status(spark: SparkSession, glob_path: str) -> list[Any]:
     return list(fs.globStatus(path) or [])
 
 
-def list_files(spark: SparkSession, glob_path: str) -> list[str]:
-    """List files matching a glob, including 0-byte files that Spark readers skip."""
-    return [s.getPath().toString() for s in _glob_status(spark, glob_path) if s.isFile()]
-
-
 def list_dirs(spark: SparkSession, glob_path: str) -> list[str]:
     """List directories matching a glob."""
     return [s.getPath().toString() for s in _glob_status(spark, glob_path) if s.isDirectory()]
+
+
+def file_sizes(spark: SparkSession, glob_path: str) -> dict[str, int]:
+    """Byte size of every file matching a glob, including 0-byte files that Spark readers skip.
+
+    Uses Hadoop FileStatus, so it works for local paths and s3a://.
+    """
+    return {s.getPath().toString(): s.getLen() for s in _glob_status(spark, glob_path) if s.isFile()}
+
+
+def _fail(manifest: "RunManifest", step: str, message: str) -> None:
+    """Record a FAILED step with the reason, then stop the run with a clear error."""
+    manifest.add_step(StepMetrics(step=step, status="FAILED", note=message))
+    raise ValueError(message)
+
+
+def _timing(metrics: "StepMetrics") -> str:
+    """'duration_s=… rows_per_s=…' suffix for a step's log line."""
+    return f"duration_s={metrics.duration_s:.2f} rows_per_s={metrics.rows_per_s or 0:.0f}"
+
+
+def validate_sources(
+    spark: SparkSession, cfg: Config, log: logging.Logger, manifest: "RunManifest"
+) -> list[str]:
+    """Check every source before Bronze writes anything; record sizes in manifest.source.
+
+    Fails the run on a missing or 0-byte CSV, a CSV header missing a schema.sql column,
+    or no learning files. Extra CSV columns only warn (they are kept in Bronze).
+    Returns the learning file paths.
+    """
+    for table in HR_TABLES:
+        step = f"bronze.hr.{table}"
+        path = f"{cfg.source_dir}/{table}.csv"
+        sizes = file_sizes(spark, path)
+        if not sizes:
+            _fail(manifest, step, f"source file not found: {path}")
+        size = next(iter(sizes.values()))
+        if size == 0:
+            _fail(manifest, step, f"{table}.csv is empty (0 bytes): {path}")
+        header = read_hr_csv(spark, cfg.source_dir, table).columns
+        missing = [c for c in HR_COLUMNS[table] if c not in header]
+        if missing:
+            _fail(manifest, step, f"schema drift in {table}.csv: missing columns {missing}")
+        extra = [c for c in header if c not in HR_COLUMNS[table]]
+        if extra:
+            log.warning("schema drift in %s.csv: extra columns %s kept in Bronze", table, extra)
+        manifest.source[f"hr.{table}"] = {"bytes": size, "extra_columns": extra}
+
+    landing = f"{cfg.source_dir}/{LEARNING_DIR}"
+    sizes = file_sizes(spark, f"{landing}/{LEARNING_GLOB}")
+    if not sizes:
+        _fail(manifest, "bronze.learning_activity", f"no learning files under {landing}")
+    manifest.source["learning_activity"] = {"files": len(sizes), "bytes": sum(sizes.values())}
+    log.info(
+        "bronze: sources ok, hr bytes=%d, learning files=%d bytes=%d",
+        sum(v["bytes"] for k, v in manifest.source.items() if k.startswith("hr.")),
+        len(sizes), sum(sizes.values()),
+    )
+    return list(sizes)
 
 
 def _partition_key(path: str) -> str:
@@ -422,10 +509,15 @@ def ingest_into_bronze(
     run_id = manifest.run_id
     ingested_at = datetime.fromisoformat(manifest.started_at)
     ingest_date = ingested_at.date().isoformat()  # UTC date of the run
+    listed = validate_sources(spark, cfg, log, manifest)
 
     for table in HR_TABLES:
+        manifest.start_step()
         src = read_hr_csv(spark, cfg.source_dir, table)
         rows_read = src.count()
+        if rows_read == 0:
+            _fail(manifest, f"bronze.hr.{table}",
+                  f"{table}.csv has 0 data rows: {cfg.source_dir}/{table}.csv")
         out = add_lineage(src, run_id, ingested_at).withColumns(
             {
                 "_source_system": F.lit("file"),
@@ -436,11 +528,13 @@ def ingest_into_bronze(
         path = f"{cfg.lake_root}/bronze/hr/{table}"
         out.write.mode("overwrite").partitionBy("ingest_date").parquet(path)
         rows_written = spark.read.parquet(f"{path}/ingest_date={ingest_date}").count()
-        log.info("bronze: hr.%s read=%d written=%d", table, rows_read, rows_written)
-        manifest.add_step(
+        step = manifest.add_step(
             StepMetrics(step=f"bronze.hr.{table}", rows_read=rows_read, rows_written=rows_written)
         )
+        log.info("bronze: hr.%s read=%d written=%d %s", table, rows_read, rows_written,
+                 _timing(step))
 
+    manifest.start_step()
     landing = f"{cfg.source_dir}/{LEARNING_DIR}"
     lines = read_learning_lines(spark, landing)
     per_file = {
@@ -453,23 +547,21 @@ def ingest_into_bronze(
         .collect()
     }
     non_blank_by_key = {_partition_key(p): nb for p, (_, nb) in per_file.items()}
-    listed = list_files(spark, f"{landing}/{LEARNING_GLOB}")
     zero_line_files = [p for p in listed if non_blank_by_key.get(_partition_key(p), 0) == 0]
     for p in zero_line_files:
         log.warning("bronze: file has zero lines: %s", p)
 
     rows_read = sum(n for n, _ in per_file.values())
+    if rows_read == 0:
+        _fail(manifest, "bronze.learning_activity",
+              f"learning files under {landing} contain 0 lines")
     path = f"{cfg.lake_root}/bronze/learning_activity"
     bronze_learning_rows(lines, run_id, ingested_at).write.mode("overwrite").partitionBy(
         "year", "month", "day"
     ).parquet(path)
     rows_written = spark.read.parquet(path).where(F.col("_run_id") == run_id).count()
     blank = rows_read - rows_written
-    log.info(
-        "bronze: learning_activity files=%d lines=%d written=%d blank_dropped=%d",
-        len(listed), rows_read, rows_written, blank,
-    )
-    manifest.add_step(
+    step = manifest.add_step(
         StepMetrics(
             step="bronze.learning_activity",
             rows_read=rows_read,
@@ -477,6 +569,10 @@ def ingest_into_bronze(
             note=f"files={len(listed)} zero_line_files={len(zero_line_files)} "
             f"blank_lines_dropped={blank}",
         )
+    )
+    log.info(
+        "bronze: learning_activity files=%d lines=%d written=%d blank_dropped=%d %s",
+        len(listed), rows_read, rows_written, blank, _timing(step),
     )
 
 
@@ -549,6 +645,7 @@ def transform_to_silver(
     run_id = manifest.run_id
     valid_by_table: dict[str, DataFrame] = {}
     for table in HR_SILVER_ORDER:
+        manifest.start_step()
         bronze = read_latest_bronze_hr(spark, cfg, table)
         rows_read = bronze.count()
         checked = prepare_hr(table, bronze, valid_by_table).cache()
@@ -573,11 +670,7 @@ def transform_to_silver(
                 f"written={rows_written} quarantined={rows_quarantined}"
             )
         valid_by_table[table] = silver
-        log.info(
-            "silver: hr.%s read=%d written=%d quarantined=%d warned=%d",
-            table, rows_read, rows_written, rows_quarantined, rows_warned,
-        )
-        manifest.add_step(
+        step = manifest.add_step(
             StepMetrics(
                 step=f"silver.hr.{table}",
                 rows_read=rows_read,
@@ -585,6 +678,10 @@ def transform_to_silver(
                 rows_quarantined=rows_quarantined,
                 rows_warned=rows_warned,
             )
+        )
+        log.info(
+            "silver: hr.%s read=%d written=%d quarantined=%d warned=%d %s",
+            table, rows_read, rows_written, rows_quarantined, rows_warned, _timing(step),
         )
 
     silver_learning(spark, cfg, log, manifest, valid_by_table["employees"])
@@ -661,6 +758,7 @@ def silver_learning(
 ) -> None:
     """Bronze lines → parse → malformed check → dedupe → rules → silver/learning_events."""
     run_id = manifest.run_id
+    manifest.start_step()
     bronze = read_bronze_learning(spark, cfg)
     rows_read = bronze.count()
 
@@ -692,13 +790,7 @@ def silver_learning(
             f"silver.learning_events reconciliation failed: read={rows_read} "
             f"written={rows_written} quarantined={rows_quarantined} deduped={rows_deduped}"
         )
-    log.info(
-        "silver: learning_events read=%d = deduped %d + quarantined %d + written %d",
-        rows_read, rows_deduped, rows_quarantined, rows_written,
-    )
-    log.info("silver: learning_events quarantine by rule %s", errors)
-    log.info("silver: learning_events warnings by rule %s", warnings)
-    manifest.add_step(
+    step = manifest.add_step(
         StepMetrics(
             step="silver.learning_events",
             rows_read=rows_read,
@@ -709,6 +801,12 @@ def silver_learning(
             note=json.dumps({"quarantine_by_rule": errors, "warnings_by_rule": warnings}),
         )
     )
+    log.info(
+        "silver: learning_events read=%d = deduped %d + quarantined %d + written %d %s",
+        rows_read, rows_deduped, rows_quarantined, rows_written, _timing(step),
+    )
+    log.info("silver: learning_events quarantine by rule %s", errors)
+    log.info("silver: learning_events warnings by rule %s", warnings)
 
 
 # =============================================================================
@@ -1013,6 +1111,7 @@ def write_gold(
     df: DataFrame,
 ) -> None:
     """Stamp, write (overwrite), read back, check grain uniqueness, record the manifest step."""
+    manifest.start_step()
     path = f"{cfg.lake_root}/gold/{name}"
     df.withColumns(
         {"_gold_run_id": F.lit(manifest.run_id), "_built_at": F.current_timestamp()}
@@ -1023,8 +1122,9 @@ def write_gold(
     distinct_keys = gold.select(*keys).distinct().count()
     if distinct_keys != rows_written:
         raise ValueError(f"gold.{name}: {rows_written - distinct_keys} duplicate {keys} keys")
-    log.info("gold: %s rows=%d grain=%s unique", name, rows_written, "×".join(keys))
-    manifest.add_step(StepMetrics(step=f"gold.{name}", rows_written=rows_written))
+    step = manifest.add_step(StepMetrics(step=f"gold.{name}", rows_written=rows_written))
+    log.info("gold: %s rows=%d grain=%s unique %s", name, rows_written, "×".join(keys),
+             _timing(step))
 
 
 def aggregate_to_gold(
@@ -1074,7 +1174,11 @@ def aggregate_to_gold(
 # =============================================================================
 @dataclass
 class StepMetrics:
-    """Row counts and status for one pipeline step."""
+    """Row counts, status and timing for one pipeline step.
+
+    rows_per_s is throughput: rows_read / duration_s for Bronze and Silver steps,
+    rows_written / duration_s for Gold steps (they record no rows_read).
+    """
 
     step: str
     status: str = "SUCCESS"
@@ -1084,11 +1188,18 @@ class StepMetrics:
     rows_deduped: int = 0
     rows_warned: int = 0
     note: str = ""
+    duration_s: Optional[float] = None
+    rows_per_s: Optional[float] = None
+
+
+def code_version() -> str:
+    """First 12 hex chars of sha256(job.py bytes): identifies the code without git."""
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
 
 
 @dataclass
 class RunManifest:
-    """Record of one pipeline run: timing, status, config and per-step metrics."""
+    """Record of one pipeline run: timing, status, config, sources and per-step metrics."""
 
     run_id: str
     is_local: bool
@@ -1098,12 +1209,26 @@ class RunManifest:
     ended_at: Optional[str] = None
     duration_s: Optional[float] = None
     status: str = "RUNNING"
+    code_version: str = field(default_factory=code_version)
+    spark_version: Optional[str] = None
+    source: dict[str, dict[str, Any]] = field(default_factory=dict)
     steps: list[StepMetrics] = field(default_factory=list)
     _t0: float = field(default_factory=time.monotonic, repr=False)
+    _step_t0: float = field(default_factory=time.monotonic, repr=False)
 
-    def add_step(self, metrics: StepMetrics) -> None:
-        """Append one step's metrics."""
+    def start_step(self) -> None:
+        """Start the timer for the next step."""
+        self._step_t0 = time.monotonic()
+
+    def add_step(self, metrics: StepMetrics) -> StepMetrics:
+        """Stamp duration_s/rows_per_s since start_step(), append, and return the metrics."""
+        now = time.monotonic()
+        metrics.duration_s = round(now - self._step_t0, 3)
+        rows = metrics.rows_written if metrics.step.startswith("gold.") else metrics.rows_read
+        metrics.rows_per_s = round(rows / metrics.duration_s, 1) if metrics.duration_s else None
+        self._step_t0 = now
         self.steps.append(metrics)
+        return metrics
 
     def finish(self, status: str) -> None:
         """Stamp end time, duration and final status."""
@@ -1115,6 +1240,7 @@ class RunManifest:
         """Serialisable view of the manifest (internal timer excluded)."""
         data = asdict(self)
         data.pop("_t0")
+        data.pop("_step_t0")
         return data
 
 
@@ -1163,7 +1289,8 @@ def main() -> int:
     exit_code = 0
     try:
         spark = create_spark_session(cfg)
-        log.info("spark %s started", spark.version)
+        manifest.spark_version = spark.version
+        log.info("spark %s started code_version=%s", spark.version, manifest.code_version)
         ingest_into_bronze(spark, cfg, log, manifest)
         transform_to_silver(spark, cfg, log, manifest)
         aggregate_to_gold(spark, cfg, log, manifest)

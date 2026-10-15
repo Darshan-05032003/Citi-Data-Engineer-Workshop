@@ -54,6 +54,7 @@ def run(spark, tmp_path_factory):
     manifest = job.RunManifest(
         run_id="mini-run", is_local=True, source_dir=cfg.source_dir, lake_root=lake
     )
+    manifest.spark_version = spark.version  # as main() does after starting Spark
     log = job.get_logger(manifest.run_id)
     job.ingest_into_bronze(spark, cfg, log, manifest)
     job.transform_to_silver(spark, cfg, log, manifest)
@@ -179,6 +180,26 @@ def test_manifest_reconciles_and_round_trips(run) -> None:
     )
 
 
+def test_manifest_observability_fields(run) -> None:
+    """code_version, spark_version, source sizes and per-step timing are recorded."""
+    _, manifest, _ = run
+    data = manifest.to_dict()
+    assert data["code_version"] == job.code_version() and len(data["code_version"]) == 12
+    assert data["spark_version"] == "3.5.0"
+    for table in job.HR_TABLES:
+        assert data["source"][f"hr.{table}"] == {
+            "bytes": (MINI_SOURCE / f"{table}.csv").stat().st_size, "extra_columns": [],
+        }
+    jsonl = list((MINI_SOURCE / "learning_activity").rglob("*.jsonl"))
+    assert data["source"]["learning_activity"] == {
+        "files": 3, "bytes": sum(p.stat().st_size for p in jsonl),
+    }
+    for s in data["steps"]:
+        assert s["duration_s"] > 0 and s["rows_per_s"] > 0, s["step"]
+        rows = s["rows_written"] if s["step"].startswith("gold.") else s["rows_read"]
+        assert s["rows_per_s"] == round(rows / s["duration_s"], 1), s["step"]
+
+
 def test_load_config_parsing() -> None:
     """IS_LOCAL truthy strings, trailing slash on LAKE_ROOT, empty AWS_REGION."""
     assert job.load_config(env={"IS_LOCAL": "false"}).is_local is False
@@ -244,4 +265,7 @@ def test_main_failure_records_failed_manifest(spark, tmp_path: Path, monkeypatch
     parts = list(lake.glob("_runs/run_id=*/part-*.txt"))
     assert len(parts) == 1
     manifest = json.loads(parts[0].read_text())
-    assert manifest["status"] == "FAILED" and manifest["steps"] == []
+    assert manifest["status"] == "FAILED"
+    [failed] = manifest["steps"]  # the source check records the failing step and reason
+    assert failed["step"] == "bronze.hr.employees" and failed["status"] == "FAILED"
+    assert failed["note"].startswith("source file not found:")
