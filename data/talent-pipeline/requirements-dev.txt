@@ -1,0 +1,8 @@
+pyspark==3.5.0
+pytest
+pytest-cov
+pandas<3
+pyarrow
+matplotlib
+jupyter
+nbconvert

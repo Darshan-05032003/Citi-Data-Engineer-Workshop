@@ -1,0 +1,9 @@
+lake/
+lake_cloud/
+.venv/
+source_data/
+spark-warehouse/
+metastore_db/
+*.tfplan
+__pycache__/
+.pytest_cache/

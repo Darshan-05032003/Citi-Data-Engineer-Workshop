@@ -1,0 +1,7 @@
+{"event_id": "E1", "employee_id": "1", "event_date": "2024-03-01T10:00:00", "event_type": "enrollment", "course_name": "C", "text": "ok", "score": null}
+{"event_id": "E2", "employee_id": "1", "event_date": "2024-03-02T10:00:00", "event_type": "quiz_passed", "course_name": "C", "text": "dup", "score": 80}
+{"event_id": "E2", "employee_id": "1", "event_date": "2024-03-02T10:00:00", "event_type": "quiz_passed", "course_name": "C", "text": "dup", "score": 80}
+{"event_id": "E3", "employee_id": null, "event_date": "2024-03-03T10:00:00", "event_type": "enrollment", "course_name": "C", "text": "no emp", "score": null}
+{"event_id": "E4", "employee_id": "1", "event_date": "yesterday", "event_type": "enrollment", "course_name": "C", "text": "bad date", "score": null}
+{"event_id": "E5", "employee_id": "1", "event_date": "2024-03-05T10:00:00", "event_type": "module_started", "course_name": "C", "notes": "from notes", "score": null}
+{"event_id": "E6", "employee_id": "1", "event_date": "2024-03-06T
