@@ -122,13 +122,15 @@ The notebook never contains credentials. In S3 mode it uses the standard AWS env
 # local (re-executes the committed notebook in place)
 cd data/talent-pipeline/notebooks && jupyter nbconvert --to notebook --execute --inplace talent_insights.ipynb
 
-# S3, from the repo root; writes a copy so the committed notebook keeps its local outputs
+# S3, from the repo root (writes a copy; add --inplace to refresh the committed notebook, as for the final cloud run)
 source ENVIRONMENT.config && unset AWS_ENDPOINT_URL AWS_ENDPOINT_URL_S3 && cd data/talent-pipeline/notebooks && \
   LAKE_ROOT=s3://coding-workshop-datalake-f2a96bad/lake jupyter nbconvert --to notebook --execute --output-dir /tmp/nb_s3 talent_insights.ipynb
 ```
 
-Both modes give identical findings. In S3 mode the run line shows the cloud run `20261015T095920Z-649058`
-([test evidence](docs/test_evidence.md#notebook-local-vs-s3)).
+Both modes give identical findings ([test evidence](docs/test_evidence.md#notebook-local-vs-s3)). **The committed notebook and
+`docs/talent_insights.html` were executed on the final cloud run `20261015T225127Z-da8bc6`** (S3 mode): 0 errors, 7 charts,
+and the headline numbers match the expected values (trend 898/872/230, critical gaps 325, High + Ready Now 357,
+attrition 1,077/612/311, 27 teams with 33 projects).
 
 ## Configuration (environment variables only)
 

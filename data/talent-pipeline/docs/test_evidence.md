@@ -303,3 +303,18 @@ README, "Notebook data source"). The first run used the default local lake; the 
   comparing the printed text. They are also identical to the outputs committed before this change.
 - The S3-executed copy was not committed, and nothing was written to S3. No credential-like strings appear in either copy
   or in `talent_insights.html`.
+
+
+**Final notebook run (committed outputs), 2026-10-15:** `LAKE_ROOT=s3://coding-workshop-datalake-f2a96bad/lake jupyter nbconvert
+--to notebook --execute --inplace talent_insights.ipynb`, then exported to `docs/talent_insights.html`.
+
+| Check | Result |
+|---|---|
+| Run line (cell 3) | `run_id=20261015T225127Z-da8bc6  status=SUCCESS  duration_s=368.045` (the final cloud run) |
+| Errors / charts | 0 / 7; the HTML parses and holds 7 images and the new run_id |
+| trend improving / stable / declining | 898 / 872 / 230 ✓ |
+| critical gaps (gap ≥ 2) | 325 ✓ |
+| High potential + Ready Now | 357 ✓ |
+| attrition risk Low / Medium / High | 1,077 / 612 / 311 ✓ |
+| teams with projects / projects | 27 / 33 ✓ |
+| 7 finding sentences | identical to the previous (local-run) outputs |
