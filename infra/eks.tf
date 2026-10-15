@@ -89,26 +89,11 @@ resource "null_resource" "helm_python_job" {
         --set pythonJob.ttlSecondsAfterFinished=1800 \
         --set pythonJob.backoffLimit=1 \
         --set-string pythonJob.env.AWS_REGION=${data.aws_region.this.region} \
-        --set-string pythonJob.env.SOURCE_MODE=${var.talent_source_mode} \
-        --set-string pythonJob.env.POSTGRES_HOST=${try(one(aws_rds_cluster.this.*.endpoint), "")} \
-        --set-string pythonJob.env.POSTGRES_PORT=${try(one(aws_rds_cluster.this.*.port), "")} \
-        --set-string pythonJob.env.POSTGRES_NAME=${try(one(aws_rds_cluster.this.*.database_name), "")} \
-        --set-string pythonJob.env.POSTGRES_USER=${try(one(aws_rds_cluster.this.*.master_username), "")} \
-        %{if var.talent_source_mode == "postgres"~}
-        --set-string pythonJob.secretEnv.POSTGRES_PASS="$POSTGRES_PASS" \
-        %{endif~}
         --set-string pythonJob.secretEnv.AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
         --set-string pythonJob.secretEnv.AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
         --set-string pythonJob.secretEnv.AWS_SESSION_TOKEN="$AWS_SESSION_TOKEN" \
         --namespace default
     EOT
-
-    # The DB password reaches helm only as the shell variable $POSTGRES_PASS (never in the command
-    # text), and only in postgres mode. master_password is sensitive, so Terraform suppresses this
-    # provisioner's output when it is set.
-    environment = {
-      POSTGRES_PASS = var.talent_source_mode == "postgres" ? try(one(aws_rds_cluster.this.*.master_password), "") : ""
-    }
   }
 
   depends_on = [null_resource.helm_chart]
