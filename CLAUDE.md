@@ -10,8 +10,7 @@ Job dir: data/talent-pipeline/ · Plan: data/talent-pipeline/docs/PLAN.md (sourc
 6. Explain the code, results and limitations; list every command you ran.
 7. End with the PROGRESS REPORT block and append it to docs/PROGRESS.md.
 
-## Current phase: LOCAL ONLY
-- No infra changes and nothing deployment-related (AWS, Terraform, kubectl, bin/ scripts) until Darshan explicitly says so.
+## Current phase: DEPLOYMENT — builder is read-only on AWS; Darshan runs deploy/apply
 - Dataset (source, read-only, never commit): sampleData/data-engineering-sample-performance-scenario/ (ignored via .git/info/exclude).
 
 ## Layout rules (single-file job)

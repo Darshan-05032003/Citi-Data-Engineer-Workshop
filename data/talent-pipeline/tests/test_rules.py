@@ -303,3 +303,17 @@ def test_gold_promotion_readiness_no_fanout(spark) -> None:
     assert (g3[1]["critical_gap_count"], g3[1]["courses_completed"]) == (2, 3)
     assert g3[1]["derived_high_potential_ready_now"] is True
     assert g3[2]["derived_high_potential_ready_now"] is False and g3[2]["critical_gap_count"] == 0
+
+
+def test_spark_conf_s3a_endpoint() -> None:
+    """hadoop-aws only for s3a:// paths; regional endpoint only when AWS_REGION is also set."""
+    local = job.spark_conf(job.load_config(env={}))
+    assert "spark.jars.packages" not in local and "spark.hadoop.fs.s3a.endpoint" not in local
+
+    cloud_env = {"SOURCE_DIR": "s3a://b/source", "LAKE_ROOT": "s3a://b/lake", "AWS_REGION": "ap-south-1"}
+    cloud = job.spark_conf(job.load_config(env=cloud_env))
+    assert cloud["spark.jars.packages"] == job.HADOOP_AWS_PACKAGE
+    assert cloud["spark.hadoop.fs.s3a.endpoint"] == "s3.ap-south-1.amazonaws.com"
+
+    no_region = job.spark_conf(job.load_config(env={**cloud_env, "AWS_REGION": ""}))
+    assert "spark.jars.packages" in no_region and "spark.hadoop.fs.s3a.endpoint" not in no_region

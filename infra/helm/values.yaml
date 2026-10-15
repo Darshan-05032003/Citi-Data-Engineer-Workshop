@@ -3,6 +3,8 @@ pythonJob:
   name: "python-job"
   scriptContent: ""
   requirementsContent: ""
+  env: {}
+  secretEnv: {}
   backoffLimit: 4
   ttlSecondsAfterFinished: 100
   restartPolicy: Never

@@ -47,3 +47,10 @@ resource "aws_s3_bucket_website_configuration" "this" {
     key = "index.html"
   }
 }
+
+resource "aws_s3_bucket" "datalake" {
+  bucket        = format("%s-datalake-%s", var.aws_project, local.app_id)
+  force_destroy = true
+
+  tags = local.app_tags
+}

@@ -31,12 +31,39 @@ flowchart LR
 cd data/talent-pipeline
 source .venv/bin/activate        # Python 3.11, pyspark 3.5.0; activate sets JAVA_HOME=Java 17 and unsets SPARK_HOME
 python job.py                    # full run, ~90 s (latest run manifest); writes ./lake
-pytest -q                        # 14 unit + 4 integration tests (integration runs the job twice, ~4 min)
+pytest -q                        # 15 unit + 4 integration = 19 tests (integration runs the job twice, ~4 min)
 cd notebooks && jupyter nbconvert --to notebook --execute --inplace talent_insights.ipynb
 jupyter nbconvert --to html --output-dir ../docs talent_insights.ipynb
 ```
 
 Run only the fast tests with `pytest -q -m "not integration"`.
+
+## Cloud deployment
+
+The same `job.py` runs as a Kubernetes Job on EKS (image `jupyter/all-spark-notebook`, Spark 3.5.0) against an S3 data lake.
+Procedure (from the repo root; Darshan runs the deploy, the builder is read-only on AWS):
+
+```bash
+source ENVIRONMENT.config && unset AWS_ENDPOINT_URL AWS_ENDPOINT_URL_S3
+B=$(cd infra && terraform output -raw datalake_bucket_name)          # coding-workshop-datalake-<app_id>
+SRC=sampleData/data-engineering-sample-performance-scenario/data-engineering-performance-talent-management
+aws s3 cp "$SRC" "s3://$B/source/" --recursive --exclude "*" --include "*.csv"    # 7 CSVs
+aws s3 sync "$SRC/learning_activity" "s3://$B/source/learning_activity"          # 783 JSONL -> 790 objects total
+kubectl delete job coding-workshop-talent-pipeline --ignore-not-found
+export TF_VAR_aws_eks_enabled=true && ./bin/deploy-backend.sh aws                # re-installs the Helm job
+kubectl logs -f job/coding-workshop-talent-pipeline                               # pod + logs kept 30 min after finish
+```
+
+- **Env vars injected by Helm** (`infra/eks.tf`): `IS_LOCAL=false`, `SOURCE_DIR=s3a://<bucket>/source`,
+  `LAKE_ROOT=s3a://<bucket>/lake`, `AWS_REGION` (job.py then sets the regional `fs.s3a.endpoint`); `backoffLimit=1`, `ttlSecondsAfterFinished=1800`.
+- **Credentials are a Kubernetes Secret** (`AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY/SESSION_TOKEN`, loaded with `envFrom`), filled from the
+  deploying shell at apply time and never written to Terraform state. Reason: the EKS node role has no S3 permissions and the node
+  requires IMDSv2 with hop limit 1, so pods cannot use instance credentials. They are short-lived STS credentials: run the job right
+  after `deploy-backend.sh`. They are also kept in Helm's release record. Production would use IRSA (a pod IAM role) instead.
+- **Runtime:** the cloud run took 1,440 s versus ~90 s locally (latest run manifests): the pod has 1 CPU, reads 783 small JSONL
+  files over S3, and installs pyspark (~300 MB) with pip at start-up.
+- **Result:** run `20261015T071439Z-9de56f` succeeded and all 26 manifest steps match the local run
+  (see [Cloud run (EKS)](docs/test_evidence.md#cloud-run-eks)).
 
 ## Configuration (environment variables only)
 
@@ -112,11 +139,15 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 - Projects link only to teams (27 of 100) and have no dates; there is no "key competency" flag and no course-to-competency mapping.
 - Counts after Silver differ slightly from raw profiling: 38 `notes` events after dedupe, 3,255 completion-without-enrollment
   employee×course pairs (39 lines / 3,262 raw (initial profiling, PLAN.md §2)).
-- **Not done yet:** Postgres/JDBC sources and the cloud deployment (S3 lake, EKS job, infra changes in PLAN.md §8) are designed but not implemented or run.
+- Postgres/JDBC sources are not implemented: both environments read files from `SOURCE_DIR`.
+- The cloud job uses short-lived credentials in a Kubernetes Secret instead of IRSA; a cloud run is slow (~24 min) and its pod
+  logs are deleted 30 min after it finishes, so the run manifest in S3 is the durable record.
 
 ## How to verify
 
-- [`docs/test_evidence.md`](docs/test_evidence.md): exact test command, full pytest output (18 passed) and the table of numbers asserted by the integration test.
+- [`docs/test_evidence.md`](docs/test_evidence.md): exact test command, full pytest output (19 passed) and the table of numbers asserted by the integration test.
 - [`docs/source_to_target.md`](docs/source_to_target.md): column mapping per layer with the rule IDs applied.
 - [`notebooks/talent_insights.ipynb`](notebooks/talent_insights.ipynb) / [`docs/talent_insights.html`](docs/talent_insights.html): findings for Q1–Q7.
 - The latest run manifest: `lake/_runs/run_id=<id>/` (status, per-step counts, quarantine and warning counts by rule).
+- [Cloud run (EKS)](docs/test_evidence.md#cloud-run-eks): cloud manifest vs local manifest, step by step.
+- [`docs/cloud_manifest.json`](docs/cloud_manifest.json): the full manifest of the successful cloud run.

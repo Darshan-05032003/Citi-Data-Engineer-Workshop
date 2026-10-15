@@ -76,12 +76,22 @@ resource "null_resource" "helm_python_job" {
 
   provisioner "local-exec" {
     command = <<-EOT
+      if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$AWS_SESSION_TOKEN" ]; then echo "ERROR: AWS credentials not in env"; exit 1; fi && \
       helm upgrade --cleanup-on-fail \
         --install ${replace(each.key, "_", "-")}-python-job ./helm/ \
         --set pythonJob.enabled=true \
         --set pythonJob.name=${replace(each.key, "_", "-")} \
         --set-file pythonJob.scriptContent=${each.value.path}/${each.value.file} \
         --set-file pythonJob.requirementsContent=${each.value.path}/${each.value.reqs} \
+        --set-string pythonJob.env.IS_LOCAL=false \
+        --set-string pythonJob.env.SOURCE_DIR=s3a://${aws_s3_bucket.datalake.bucket}/source \
+        --set-string pythonJob.env.LAKE_ROOT=s3a://${aws_s3_bucket.datalake.bucket}/lake \
+        --set pythonJob.ttlSecondsAfterFinished=1800 \
+        --set pythonJob.backoffLimit=1 \
+        --set-string pythonJob.env.AWS_REGION=${data.aws_region.this.region} \
+        --set-string pythonJob.secretEnv.AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
+        --set-string pythonJob.secretEnv.AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
+        --set-string pythonJob.secretEnv.AWS_SESSION_TOKEN="$AWS_SESSION_TOKEN" \
         --namespace default
     EOT
   }

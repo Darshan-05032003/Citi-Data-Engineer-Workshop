@@ -43,6 +43,7 @@ class Config:
     is_local: bool
     source_dir: str
     lake_root: str
+    aws_region: Optional[str] = None
 
 
 def _parse_bool(value: str) -> bool:
@@ -51,12 +52,13 @@ def _parse_bool(value: str) -> bool:
 
 
 def load_config(env: Optional[Mapping[str, str]] = None) -> Config:
-    """Build a Config from env vars (IS_LOCAL, SOURCE_DIR, LAKE_ROOT) with local defaults."""
+    """Build a Config from env vars (IS_LOCAL, SOURCE_DIR, LAKE_ROOT, AWS_REGION)."""
     env = os.environ if env is None else env
     return Config(
         is_local=_parse_bool(env.get("IS_LOCAL", "true")),
         source_dir=env.get("SOURCE_DIR", str(DEFAULT_SOURCE_DIR)),
         lake_root=env.get("LAKE_ROOT", str(DEFAULT_LAKE_ROOT)).rstrip("/"),
+        aws_region=env.get("AWS_REGION") or None,
     )
 
 
@@ -81,19 +83,27 @@ def get_logger(run_id: str) -> logging.Logger:
 # =============================================================================
 # 3. Spark session
 # =============================================================================
-def create_spark_session(cfg: Config) -> SparkSession:
-    """Create the local[2] SparkSession; add hadoop-aws only when a path is s3a://."""
-    builder = (
-        SparkSession.builder.master("local[2]")
-        .appName("talent-pipeline")
-        .config("spark.driver.memory", "1g")
-        .config("spark.sql.shuffle.partitions", "4")
-        .config("spark.sql.sources.partitionOverwriteMode", "dynamic")
-        .config("spark.ui.enabled", "false")
-        .config("spark.ui.showConsoleProgress", "false")
-    )
+def spark_conf(cfg: Config) -> dict[str, str]:
+    """Spark settings; hadoop-aws (+ regional S3 endpoint if AWS_REGION) only for s3a:// paths."""
+    conf = {
+        "spark.driver.memory": "1g",
+        "spark.sql.shuffle.partitions": "4",
+        "spark.sql.sources.partitionOverwriteMode": "dynamic",
+        "spark.ui.enabled": "false",
+        "spark.ui.showConsoleProgress": "false",
+    }
     if any(p.startswith("s3a://") for p in (cfg.source_dir, cfg.lake_root)):
-        builder = builder.config("spark.jars.packages", HADOOP_AWS_PACKAGE)
+        conf["spark.jars.packages"] = HADOOP_AWS_PACKAGE
+        if cfg.aws_region:
+            conf["spark.hadoop.fs.s3a.endpoint"] = f"s3.{cfg.aws_region}.amazonaws.com"
+    return conf
+
+
+def create_spark_session(cfg: Config) -> SparkSession:
+    """Create the local[2] SparkSession with spark_conf(cfg)."""
+    builder = SparkSession.builder.master("local[2]").appName("talent-pipeline")
+    for key, value in spark_conf(cfg).items():
+        builder = builder.config(key, value)
     spark = builder.getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
     return spark
