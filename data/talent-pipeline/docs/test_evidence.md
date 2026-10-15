@@ -226,50 +226,66 @@ summed per layer; file counts come from `find lake/<layer> -name '*.parquet' | w
 
 ## Cloud run (EKS)
 
-- run_id `20261015T084021Z-13ec40` · status **SUCCESS** · duration **1476.222 s** (local run `20261015T081756Z-03a037`: 91.569 s) · started 2026-10-15T08:40:21.969337+00:00
-- Runtime: EKS Job `coding-workshop-talent-pipeline`, image `jupyter/all-spark-notebook` (Spark 3.5.0), `IS_LOCAL=false`,
-  `SOURCE_DIR=s3a://coding-workshop-datalake-f2a96bad/source` (790 objects: 7 CSVs + 783 JSONL), `LAKE_ROOT=s3a://coding-workshop-datalake-f2a96bad/lake`.
-- **Comparison: 26 of 26 manifest steps match** the local manifest (row counts below, plus status and the per-rule
-  quarantine/warning notes, which are identical).
-- Evidence files: [`cloud_run_log.txt`](cloud_run_log.txt) (pipeline log lines of this run) and [`cloud_manifest.json`](cloud_manifest.json) (its manifest).
-- An earlier cloud run, `20261015T071439Z-9de56f` (1440.3 s), also matched the local manifest on 26 of 26 steps. The notebook was
-  executed against that run's Gold copy (`lake_cloud/`): 0 errors, 7 charts, all printed findings identical to the local run.
+Final cloud run of the current code, after the file-layout change (F4) and everything since:
 
-| step | local (read / written / quarantined / deduped / warned) | cloud (same) | match |
-|---|---|---|---|
-| bronze.hr.employees | 2,000 / 2,000 / 0 / 0 / 0 | 2,000 / 2,000 / 0 / 0 / 0 | ✓ |
-| bronze.hr.teams | 100 / 100 / 0 / 0 / 0 | 100 / 100 / 0 / 0 / 0 | ✓ |
-| bronze.hr.competencies | 40 / 40 / 0 / 0 / 0 | 40 / 40 / 0 / 0 / 0 | ✓ |
-| bronze.hr.projects | 33 / 33 / 0 / 0 / 0 | 33 / 33 / 0 / 0 / 0 | ✓ |
-| bronze.hr.performance_reviews | 4,000 / 4,000 / 0 / 0 / 0 | 4,000 / 4,000 / 0 / 0 / 0 | ✓ |
-| bronze.hr.competency_assessments | 4,000 / 4,000 / 0 / 0 / 0 | 4,000 / 4,000 / 0 / 0 / 0 | ✓ |
-| bronze.hr.talent_review | 2,000 / 2,000 / 0 / 0 / 0 | 2,000 / 2,000 / 0 / 0 / 0 | ✓ |
-| bronze.learning_activity | 29,868 / 29,868 / 0 / 0 / 0 | 29,868 / 29,868 / 0 / 0 / 0 | ✓ |
-| silver.hr.teams | 100 / 100 / 0 / 0 / 0 | 100 / 100 / 0 / 0 / 0 | ✓ |
-| silver.hr.competencies | 40 / 40 / 0 / 0 / 0 | 40 / 40 / 0 / 0 / 0 | ✓ |
-| silver.hr.employees | 2,000 / 2,000 / 0 / 0 / 0 | 2,000 / 2,000 / 0 / 0 / 0 | ✓ |
-| silver.hr.projects | 33 / 33 / 0 / 0 / 0 | 33 / 33 / 0 / 0 / 0 | ✓ |
-| silver.hr.performance_reviews | 4,000 / 4,000 / 0 / 0 / 666 | 4,000 / 4,000 / 0 / 0 / 666 | ✓ |
-| silver.hr.competency_assessments | 4,000 / 4,000 / 0 / 0 / 234 | 4,000 / 4,000 / 0 / 0 / 234 | ✓ |
-| silver.hr.talent_review | 2,000 / 2,000 / 0 / 0 / 0 | 2,000 / 2,000 / 0 / 0 / 0 | ✓ |
-| silver.learning_events | 29,868 / 29,574 / 142 / 152 / 5,185 | 29,868 / 29,574 / 142 / 152 / 5,185 | ✓ |
-| gold.employee_performance_history | 0 / 4,000 / 0 / 0 / 0 | 0 / 4,000 / 0 / 0 / 0 | ✓ |
-| gold.employee_performance_summary | 0 / 2,000 / 0 / 0 / 0 | 0 / 2,000 / 0 / 0 / 0 | ✓ |
-| gold.employee_competency_gaps | 0 / 4,000 / 0 / 0 / 0 | 0 / 4,000 / 0 / 0 / 0 | ✓ |
-| gold.team_performance_outcomes | 0 / 100 / 0 / 0 / 0 | 0 / 100 / 0 / 0 / 0 | ✓ |
-| gold.competency_distribution | 0 / 400 / 0 / 0 / 0 | 0 / 400 / 0 / 0 / 0 | ✓ |
-| gold.learning_progress | 0 / 25,009 / 0 / 0 / 0 | 0 / 25,009 / 0 / 0 / 0 | ✓ |
-| gold.learning_summary | 0 / 2,000 / 0 / 0 / 0 | 0 / 2,000 / 0 / 0 / 0 | ✓ |
-| gold.promotion_readiness | 0 / 2,000 / 0 / 0 / 0 | 0 / 2,000 / 0 / 0 / 0 | ✓ |
-| gold.attrition_risk_context | 0 / 2,000 / 0 / 0 / 0 | 0 / 2,000 / 0 / 0 / 0 | ✓ |
-| gold.attrition_by_trend | 0 / 9 / 0 / 0 / 0 | 0 / 9 / 0 / 0 / 0 | ✓ |
+- run_id `20261015T225127Z-da8bc6` · status **SUCCESS** · duration **368.0 s** · started 2026-10-15T22:51:27.079243+00:00
+  · `code_version` **75d99c812e4f**: Helm adds a leading newline to job.py in the ConfigMap; sha256("\n"+job.py) = 75d99c812e4f
+  (the committed job.py alone hashes to de236fc1c408), so the deployed code is this repo's job.py.
+- Runtime: EKS Job `coding-workshop-talent-pipeline`, image `jupyter/all-spark-notebook` (Spark 3.5.0), `IS_LOCAL=false`,
+  `SOURCE_MODE=files`, `SOURCE_DIR=s3a://coding-workshop-datalake-f2a96bad/source` (790 objects), `LAKE_ROOT=s3a://coding-workshop-datalake-f2a96bad/lake`.
+- Before the run, only `lake/bronze/learning_activity/` was cleared in S3 (782 objects in the old `year/month/day` layout,
+  checked with `--dryrun` first); `source/`, `_runs/` and the other layers were kept.
+- **Comparison: 26 of 26 manifest steps match** a fresh local files-mode run (`20261015T225511Z-d46925`, 73.5 s) on status, every
+  count, every note (quarantine/warning counts by rule) and `files_written` (98 parquet files in total).
+- **Cloud smoke test** on this run: `2 passed, 78 deselected in 4.14s`
+  (`CLOUD_SMOKE=1 LAKE_ROOT=s3a://coding-workshop-datalake-f2a96bad/lake pytest -q -m cloud`; it reads the newest manifest, `20261015T225127Z-da8bc6`).
+- **Full local suite** the same day: `78 passed, 2 skipped in 404.99s (0:06:44)` (the 2 skipped are the cloud tests, run separately above).
+- Evidence files: [`cloud_run_log.txt`](cloud_run_log.txt) (pipeline log lines of this run) and [`cloud_manifest.json`](cloud_manifest.json) (its manifest).
+- Earlier cloud runs with the old code and layout (`20261015T071439Z-9de56f` 1,440.3 s, `20261015T084021Z-13ec40` 1,476.2 s,
+  `20261015T095920Z-649058` 1,452.4 s) also matched the local counts on 26 of 26 steps.
+
+| Layer | local s | cloud s |
+|---|---|---|
+| bronze.hr | 9.3 | 38.7 |
+| bronze.learning_activity | 11.8 | 91.0 |
+| silver.hr | 11.6 | 46.7 |
+| silver.learning_events | 10.9 | 64.6 |
+| gold | 11.5 | 59.2 |
+
+| step | local (read / written / quarantined / deduped / warned) | cloud (same) | files | local s | cloud s | match |
+|---|---|---|---|---|---|---|
+| bronze.hr.employees | 2,000 / 2,000 / 0 / 0 / 0 | 2,000 / 2,000 / 0 / 0 / 0 | 1 | 3.9 | 10.8 | ✓ |
+| bronze.hr.teams | 100 / 100 / 0 / 0 / 0 | 100 / 100 / 0 / 0 / 0 | 1 | 1.0 | 5.3 | ✓ |
+| bronze.hr.competencies | 40 / 40 / 0 / 0 / 0 | 40 / 40 / 0 / 0 / 0 | 1 | 0.9 | 4.6 | ✓ |
+| bronze.hr.projects | 33 / 33 / 0 / 0 / 0 | 33 / 33 / 0 / 0 / 0 | 1 | 1.3 | 4.6 | ✓ |
+| bronze.hr.performance_reviews | 4,000 / 4,000 / 0 / 0 / 0 | 4,000 / 4,000 / 0 / 0 / 0 | 1 | 0.9 | 4.9 | ✓ |
+| bronze.hr.competency_assessments | 4,000 / 4,000 / 0 / 0 / 0 | 4,000 / 4,000 / 0 / 0 / 0 | 1 | 0.7 | 4.3 | ✓ |
+| bronze.hr.talent_review | 2,000 / 2,000 / 0 / 0 / 0 | 2,000 / 2,000 / 0 / 0 / 0 | 1 | 0.6 | 4.2 | ✓ |
+| bronze.learning_activity | 29,868 / 29,868 / 0 / 0 / 0 | 29,868 / 29,868 / 0 / 0 / 0 | 37 | 11.8 | 91.0 | ✓ |
+| silver.hr.teams | 100 / 100 / 0 / 0 / 0 | 100 / 100 / 0 / 0 / 0 | 1 | 1.9 | 6.2 | ✓ |
+| silver.hr.competencies | 40 / 40 / 0 / 0 / 0 | 40 / 40 / 0 / 0 / 0 | 1 | 0.9 | 5.2 | ✓ |
+| silver.hr.employees | 2,000 / 2,000 / 0 / 0 / 0 | 2,000 / 2,000 / 0 / 0 / 0 | 1 | 1.9 | 7.9 | ✓ |
+| silver.hr.projects | 33 / 33 / 0 / 0 / 0 | 33 / 33 / 0 / 0 / 0 | 1 | 1.5 | 5.6 | ✓ |
+| silver.hr.performance_reviews | 4,000 / 4,000 / 0 / 0 / 666 | 4,000 / 4,000 / 0 / 0 / 666 | 1 | 2.0 | 8.4 | ✓ |
+| silver.hr.competency_assessments | 4,000 / 4,000 / 0 / 0 / 234 | 4,000 / 4,000 / 0 / 0 / 234 | 1 | 1.9 | 8.1 | ✓ |
+| silver.hr.talent_review | 2,000 / 2,000 / 0 / 0 / 0 | 2,000 / 2,000 / 0 / 0 / 0 | 1 | 1.5 | 5.3 | ✓ |
+| silver.learning_events | 29,868 / 29,574 / 142 / 152 / 5,185 | 29,868 / 29,574 / 142 / 152 / 5,185 | 37 | 10.9 | 64.6 | ✓ |
+| gold.employee_performance_history | 0 / 4,000 / 0 / 0 / 0 | 0 / 4,000 / 0 / 0 / 0 | 1 | 0.9 | 3.7 | ✓ |
+| gold.employee_performance_summary | 0 / 2,000 / 0 / 0 / 0 | 0 / 2,000 / 0 / 0 / 0 | 1 | 1.0 | 4.6 | ✓ |
+| gold.employee_competency_gaps | 0 / 4,000 / 0 / 0 / 0 | 0 / 4,000 / 0 / 0 / 0 | 1 | 0.6 | 3.8 | ✓ |
+| gold.team_performance_outcomes | 0 / 100 / 0 / 0 / 0 | 0 / 100 / 0 / 0 / 0 | 1 | 1.1 | 4.6 | ✓ |
+| gold.competency_distribution | 0 / 400 / 0 / 0 / 0 | 0 / 400 / 0 / 0 / 0 | 1 | 1.1 | 4.5 | ✓ |
+| gold.learning_progress | 0 / 25,009 / 0 / 0 / 0 | 0 / 25,009 / 0 / 0 / 0 | 1 | 1.2 | 7.3 | ✓ |
+| gold.learning_summary | 0 / 2,000 / 0 / 0 / 0 | 0 / 2,000 / 0 / 0 / 0 | 1 | 1.1 | 7.1 | ✓ |
+| gold.promotion_readiness | 0 / 2,000 / 0 / 0 / 0 | 0 / 2,000 / 0 / 0 / 0 | 1 | 1.4 | 9.0 | ✓ |
+| gold.attrition_risk_context | 0 / 2,000 / 0 / 0 / 0 | 0 / 2,000 / 0 / 0 / 0 | 1 | 1.9 | 9.9 | ✓ |
+| gold.attrition_by_trend | 0 / 9 / 0 / 0 / 0 | 0 / 9 / 0 / 0 / 0 | 1 | 1.2 | 4.6 | ✓ |
 
 Commands (read-only, prefixed with `source ENVIRONMENT.config && unset AWS_ENDPOINT_URL AWS_ENDPOINT_URL_S3 &&`):
 ```
 kubectl logs job/coding-workshop-talent-pipeline            # full pod log -> filtered into cloud_run_log.txt
 aws s3 ls s3://coding-workshop-datalake-f2a96bad/lake/_runs/
-aws s3 cp s3://coding-workshop-datalake-f2a96bad/lake/_runs/run_id=20261015T084021Z-13ec40/part-00000-<id>-c000.txt -
-aws s3 ls s3://coding-workshop-datalake-f2a96bad/source/ --recursive | wc -l
+aws s3 cp s3://coding-workshop-datalake-f2a96bad/lake/_runs/run_id=20261015T225127Z-da8bc6/part-00000-<id>-c000.txt -
 ```
 
 ## Notebook: local vs S3

@@ -1,16 +1,56 @@
 {
-  "duration_s": 1476.222,
-  "ended_at": "2026-10-15T09:04:58.191524+00:00",
+  "code_version": "75d99c812e4f",
+  "duration_s": 368.045,
+  "ended_at": "2026-10-15T22:57:35.124621+00:00",
   "is_local": false,
   "lake_root": "s3a://coding-workshop-datalake-f2a96bad/lake",
-  "run_id": "20261015T084021Z-13ec40",
+  "run_id": "20261015T225127Z-da8bc6",
+  "source": {
+    "hr.competencies": {
+      "bytes": 1198,
+      "extra_columns": []
+    },
+    "hr.competency_assessments": {
+      "bytes": 111889,
+      "extra_columns": []
+    },
+    "hr.employees": {
+      "bytes": 155720,
+      "extra_columns": []
+    },
+    "hr.performance_reviews": {
+      "bytes": 324240,
+      "extra_columns": []
+    },
+    "hr.projects": {
+      "bytes": 1325,
+      "extra_columns": []
+    },
+    "hr.talent_review": {
+      "bytes": 68278,
+      "extra_columns": []
+    },
+    "hr.teams": {
+      "bytes": 3402,
+      "extra_columns": []
+    },
+    "learning_activity": {
+      "bytes": 7302325,
+      "files": 783
+    }
+  },
   "source_dir": "s3a://coding-workshop-datalake-f2a96bad/source",
-  "started_at": "2026-10-15T08:40:21.969337+00:00",
+  "source_mode": "files",
+  "spark_version": "3.5.0",
+  "started_at": "2026-10-15T22:51:27.079243+00:00",
   "status": "SUCCESS",
   "steps": [
     {
+      "duration_s": 10.798,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 185.2,
       "rows_quarantined": 0,
       "rows_read": 2000,
       "rows_warned": 0,
@@ -19,8 +59,11 @@
       "step": "bronze.hr.employees"
     },
     {
+      "duration_s": 5.275,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 19.0,
       "rows_quarantined": 0,
       "rows_read": 100,
       "rows_warned": 0,
@@ -29,8 +72,11 @@
       "step": "bronze.hr.teams"
     },
     {
+      "duration_s": 4.648,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 8.6,
       "rows_quarantined": 0,
       "rows_read": 40,
       "rows_warned": 0,
@@ -39,8 +85,11 @@
       "step": "bronze.hr.competencies"
     },
     {
+      "duration_s": 4.594,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 7.2,
       "rows_quarantined": 0,
       "rows_read": 33,
       "rows_warned": 0,
@@ -49,8 +98,11 @@
       "step": "bronze.hr.projects"
     },
     {
+      "duration_s": 4.907,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 815.2,
       "rows_quarantined": 0,
       "rows_read": 4000,
       "rows_warned": 0,
@@ -59,8 +111,11 @@
       "step": "bronze.hr.performance_reviews"
     },
     {
+      "duration_s": 4.316,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 926.8,
       "rows_quarantined": 0,
       "rows_read": 4000,
       "rows_warned": 0,
@@ -69,8 +124,11 @@
       "step": "bronze.hr.competency_assessments"
     },
     {
+      "duration_s": 4.18,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 478.5,
       "rows_quarantined": 0,
       "rows_read": 2000,
       "rows_warned": 0,
@@ -79,8 +137,11 @@
       "step": "bronze.hr.talent_review"
     },
     {
+      "duration_s": 90.961,
+      "files_written": 37,
       "note": "files=783 zero_line_files=1 blank_lines_dropped=0",
       "rows_deduped": 0,
+      "rows_per_s": 328.4,
       "rows_quarantined": 0,
       "rows_read": 29868,
       "rows_warned": 0,
@@ -89,8 +150,11 @@
       "step": "bronze.learning_activity"
     },
     {
+      "duration_s": 6.229,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 16.1,
       "rows_quarantined": 0,
       "rows_read": 100,
       "rows_warned": 0,
@@ -99,8 +163,11 @@
       "step": "silver.hr.teams"
     },
     {
+      "duration_s": 5.208,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 7.7,
       "rows_quarantined": 0,
       "rows_read": 40,
       "rows_warned": 0,
@@ -109,8 +176,11 @@
       "step": "silver.hr.competencies"
     },
     {
+      "duration_s": 7.91,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 252.8,
       "rows_quarantined": 0,
       "rows_read": 2000,
       "rows_warned": 0,
@@ -119,8 +189,11 @@
       "step": "silver.hr.employees"
     },
     {
+      "duration_s": 5.591,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 5.9,
       "rows_quarantined": 0,
       "rows_read": 33,
       "rows_warned": 0,
@@ -129,8 +202,11 @@
       "step": "silver.hr.projects"
     },
     {
+      "duration_s": 8.401,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 476.1,
       "rows_quarantined": 0,
       "rows_read": 4000,
       "rows_warned": 666,
@@ -139,8 +215,11 @@
       "step": "silver.hr.performance_reviews"
     },
     {
+      "duration_s": 8.108,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 493.3,
       "rows_quarantined": 0,
       "rows_read": 4000,
       "rows_warned": 234,
@@ -149,8 +228,11 @@
       "step": "silver.hr.competency_assessments"
     },
     {
+      "duration_s": 5.3,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 377.4,
       "rows_quarantined": 0,
       "rows_read": 2000,
       "rows_warned": 0,
@@ -159,8 +241,11 @@
       "step": "silver.hr.talent_review"
     },
     {
+      "duration_s": 64.603,
+      "files_written": 37,
       "note": "{\"quarantine_by_rule\": {\"learning_events.employee_id.not_null\": 76, \"learning_events.event_ts.invalid\": 53, \"learning_events.raw.malformed_json\": 13}, \"warnings_by_rule\": {\"learning_events.event_text.notes_used\": 38, \"learning_events.event_ts.before_hire\": 5161}}",
       "rows_deduped": 152,
+      "rows_per_s": 462.3,
       "rows_quarantined": 142,
       "rows_read": 29868,
       "rows_warned": 5185,
@@ -169,8 +254,11 @@
       "step": "silver.learning_events"
     },
     {
+      "duration_s": 3.701,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 1080.8,
       "rows_quarantined": 0,
       "rows_read": 0,
       "rows_warned": 0,
@@ -179,8 +267,11 @@
       "step": "gold.employee_performance_history"
     },
     {
+      "duration_s": 4.608,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 434.0,
       "rows_quarantined": 0,
       "rows_read": 0,
       "rows_warned": 0,
@@ -189,8 +280,11 @@
       "step": "gold.employee_performance_summary"
     },
     {
+      "duration_s": 3.792,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 1054.9,
       "rows_quarantined": 0,
       "rows_read": 0,
       "rows_warned": 0,
@@ -199,8 +293,11 @@
       "step": "gold.employee_competency_gaps"
     },
     {
+      "duration_s": 4.616,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 21.7,
       "rows_quarantined": 0,
       "rows_read": 0,
       "rows_warned": 0,
@@ -209,8 +306,11 @@
       "step": "gold.team_performance_outcomes"
     },
     {
+      "duration_s": 4.495,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 89.0,
       "rows_quarantined": 0,
       "rows_read": 0,
       "rows_warned": 0,
@@ -219,8 +319,11 @@
       "step": "gold.competency_distribution"
     },
     {
+      "duration_s": 7.346,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 3404.4,
       "rows_quarantined": 0,
       "rows_read": 0,
       "rows_warned": 0,
@@ -229,8 +332,11 @@
       "step": "gold.learning_progress"
     },
     {
+      "duration_s": 7.137,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 280.2,
       "rows_quarantined": 0,
       "rows_read": 0,
       "rows_warned": 0,
@@ -239,8 +345,11 @@
       "step": "gold.learning_summary"
     },
     {
+      "duration_s": 8.98,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 222.7,
       "rows_quarantined": 0,
       "rows_read": 0,
       "rows_warned": 0,
@@ -249,8 +358,11 @@
       "step": "gold.promotion_readiness"
     },
     {
+      "duration_s": 9.931,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 201.4,
       "rows_quarantined": 0,
       "rows_read": 0,
       "rows_warned": 0,
@@ -259,8 +371,11 @@
       "step": "gold.attrition_risk_context"
     },
     {
+      "duration_s": 4.595,
+      "files_written": 1,
       "note": "",
       "rows_deduped": 0,
+      "rows_per_s": 2.0,
       "rows_quarantined": 0,
       "rows_read": 0,
       "rows_warned": 0,

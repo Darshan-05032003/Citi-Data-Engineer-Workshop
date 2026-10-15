@@ -1,36 +1,37 @@
-# Cloud run log — EKS job coding-workshop-talent-pipeline, run_id 20261015T084021Z-13ec40
-# Source: kubectl logs job/coding-workshop-talent-pipeline (full pod log, 87 lines), filtered to pipeline INFO/WARNING/ERROR lines;
+# Cloud run log — EKS job coding-workshop-talent-pipeline, run_id 20261015T225127Z-da8bc6
+# Source: kubectl logs job/coding-workshop-talent-pipeline (full pod log, 88 lines), filtered to pipeline INFO/WARNING/ERROR lines;
 # pip/Ivy/Spark start-up noise removed. Timestamps are UTC (pod clock). No credentials appear in the log.
-2026-10-15 08:40:21,969 INFO run_id=20261015T084021Z-13ec40 start is_local=False source_dir=s3a://coding-workshop-datalake-f2a96bad/source lake_root=s3a://coding-workshop-datalake-f2a96bad/lake
-2026-10-15 08:40:41,860 INFO run_id=20261015T084021Z-13ec40 spark 3.5.0 started
-2026-10-15 08:41:04,634 INFO run_id=20261015T084021Z-13ec40 bronze: hr.employees read=2000 written=2000
-2026-10-15 08:41:09,782 INFO run_id=20261015T084021Z-13ec40 bronze: hr.teams read=100 written=100
-2026-10-15 08:41:14,469 INFO run_id=20261015T084021Z-13ec40 bronze: hr.competencies read=40 written=40
-2026-10-15 08:41:19,267 INFO run_id=20261015T084021Z-13ec40 bronze: hr.projects read=33 written=33
-2026-10-15 08:41:23,968 INFO run_id=20261015T084021Z-13ec40 bronze: hr.performance_reviews read=4000 written=4000
-2026-10-15 08:41:27,914 INFO run_id=20261015T084021Z-13ec40 bronze: hr.competency_assessments read=4000 written=4000
-2026-10-15 08:41:31,927 INFO run_id=20261015T084021Z-13ec40 bronze: hr.talent_review read=2000 written=2000
-2026-10-15 08:42:40,224 WARNING run_id=20261015T084021Z-13ec40 bronze: file has zero lines: s3a://coding-workshop-datalake-f2a96bad/source/learning_activity/year=2025/month=09/day=03/events-000.jsonl
-2026-10-15 08:56:22,703 INFO run_id=20261015T084021Z-13ec40 bronze: learning_activity files=783 lines=29868 written=29868 blank_dropped=0
-2026-10-15 08:56:28,960 INFO run_id=20261015T084021Z-13ec40 silver: hr.teams read=100 written=100 quarantined=0 warned=0
-2026-10-15 08:56:33,078 INFO run_id=20261015T084021Z-13ec40 silver: hr.competencies read=40 written=40 quarantined=0 warned=0
-2026-10-15 08:56:39,562 INFO run_id=20261015T084021Z-13ec40 silver: hr.employees read=2000 written=2000 quarantined=0 warned=0
-2026-10-15 08:56:44,415 INFO run_id=20261015T084021Z-13ec40 silver: hr.projects read=33 written=33 quarantined=0 warned=0
-2026-10-15 08:56:50,635 INFO run_id=20261015T084021Z-13ec40 silver: hr.performance_reviews read=4000 written=4000 quarantined=0 warned=666
-2026-10-15 08:56:56,514 INFO run_id=20261015T084021Z-13ec40 silver: hr.competency_assessments read=4000 written=4000 quarantined=0 warned=234
-2026-10-15 08:57:01,613 INFO run_id=20261015T084021Z-13ec40 silver: hr.talent_review read=2000 written=2000 quarantined=0 warned=0
-2026-10-15 09:03:34,216 INFO run_id=20261015T084021Z-13ec40 silver: learning_events read=29868 = deduped 152 + quarantined 142 + written 29574
-2026-10-15 09:03:34,216 INFO run_id=20261015T084021Z-13ec40 silver: learning_events quarantine by rule {'learning_events.employee_id.not_null': 76, 'learning_events.event_ts.invalid': 53, 'learning_events.raw.malformed_json': 13}
-2026-10-15 09:03:34,216 INFO run_id=20261015T084021Z-13ec40 silver: learning_events warnings by rule {'learning_events.event_text.notes_used': 38, 'learning_events.event_ts.before_hire': 5161}
-2026-10-15 09:03:43,262 INFO run_id=20261015T084021Z-13ec40 gold: employee_performance_history rows=4000 grain=employee_id×review_period unique
-2026-10-15 09:03:46,922 INFO run_id=20261015T084021Z-13ec40 gold: employee_performance_summary rows=2000 grain=employee_id unique
-2026-10-15 09:03:49,942 INFO run_id=20261015T084021Z-13ec40 gold: employee_competency_gaps rows=4000 grain=employee_id×competency_id unique
-2026-10-15 09:03:54,224 INFO run_id=20261015T084021Z-13ec40 gold: team_performance_outcomes rows=100 grain=team_id unique
-2026-10-15 09:03:57,924 INFO run_id=20261015T084021Z-13ec40 gold: competency_distribution rows=400 grain=competency_id×department unique
-2026-10-15 09:04:09,813 INFO run_id=20261015T084021Z-13ec40 gold: learning_progress rows=25009 grain=employee_id×course_name unique
-2026-10-15 09:04:23,090 INFO run_id=20261015T084021Z-13ec40 gold: learning_summary rows=2000 grain=employee_id unique
-2026-10-15 09:04:37,581 INFO run_id=20261015T084021Z-13ec40 gold: promotion_readiness rows=2000 grain=employee_id unique
-2026-10-15 09:04:54,166 INFO run_id=20261015T084021Z-13ec40 gold: attrition_risk_context rows=2000 grain=employee_id unique
-2026-10-15 09:04:58,191 INFO run_id=20261015T084021Z-13ec40 gold: attrition_by_trend rows=9 grain=attrition_risk×derived_rating_trend unique
-2026-10-15 09:05:01,220 INFO run_id=20261015T084021Z-13ec40 manifest written to s3a://coding-workshop-datalake-f2a96bad/lake/_runs/run_id=20261015T084021Z-13ec40
-2026-10-15 09:05:01,589 INFO run_id=20261015T084021Z-13ec40 end status=SUCCESS duration_s=1476.222
+2026-10-15 22:51:27,079 INFO run_id=20261015T225127Z-da8bc6 start is_local=False source_mode=files source_dir=s3a://coding-workshop-datalake-f2a96bad/source lake_root=s3a://coding-workshop-datalake-f2a96bad/lake
+2026-10-15 22:51:53,030 INFO run_id=20261015T225127Z-da8bc6 spark 3.5.0 started code_version=75d99c812e4f
+2026-10-15 22:52:28,807 INFO run_id=20261015T225127Z-da8bc6 bronze: sources ok (HR from files), learning files=783 bytes=7302325
+2026-10-15 22:52:39,605 INFO run_id=20261015T225127Z-da8bc6 bronze: hr.employees read=2000 written=2000 files_written=1 duration_s=10.80 rows_per_s=185
+2026-10-15 22:52:44,881 INFO run_id=20261015T225127Z-da8bc6 bronze: hr.teams read=100 written=100 files_written=1 duration_s=5.28 rows_per_s=19
+2026-10-15 22:52:49,529 INFO run_id=20261015T225127Z-da8bc6 bronze: hr.competencies read=40 written=40 files_written=1 duration_s=4.65 rows_per_s=9
+2026-10-15 22:52:54,123 INFO run_id=20261015T225127Z-da8bc6 bronze: hr.projects read=33 written=33 files_written=1 duration_s=4.59 rows_per_s=7
+2026-10-15 22:52:59,031 INFO run_id=20261015T225127Z-da8bc6 bronze: hr.performance_reviews read=4000 written=4000 files_written=1 duration_s=4.91 rows_per_s=815
+2026-10-15 22:53:03,348 INFO run_id=20261015T225127Z-da8bc6 bronze: hr.competency_assessments read=4000 written=4000 files_written=1 duration_s=4.32 rows_per_s=927
+2026-10-15 22:53:07,528 INFO run_id=20261015T225127Z-da8bc6 bronze: hr.talent_review read=2000 written=2000 files_written=1 duration_s=4.18 rows_per_s=478
+2026-10-15 22:54:03,542 WARNING run_id=20261015T225127Z-da8bc6 bronze: file has zero lines: s3a://coding-workshop-datalake-f2a96bad/source/learning_activity/year=2025/month=09/day=03/events-000.jsonl
+2026-10-15 22:54:38,489 INFO run_id=20261015T225127Z-da8bc6 bronze: learning_activity files=783 lines=29868 written=29868 blank_dropped=0 files_written=37 duration_s=90.96 rows_per_s=328
+2026-10-15 22:54:44,719 INFO run_id=20261015T225127Z-da8bc6 silver: hr.teams read=100 written=100 quarantined=0 warned=0 files_written=1 duration_s=6.23 rows_per_s=16
+2026-10-15 22:54:49,927 INFO run_id=20261015T225127Z-da8bc6 silver: hr.competencies read=40 written=40 quarantined=0 warned=0 files_written=1 duration_s=5.21 rows_per_s=8
+2026-10-15 22:54:57,838 INFO run_id=20261015T225127Z-da8bc6 silver: hr.employees read=2000 written=2000 quarantined=0 warned=0 files_written=1 duration_s=7.91 rows_per_s=253
+2026-10-15 22:55:03,429 INFO run_id=20261015T225127Z-da8bc6 silver: hr.projects read=33 written=33 quarantined=0 warned=0 files_written=1 duration_s=5.59 rows_per_s=6
+2026-10-15 22:55:11,830 INFO run_id=20261015T225127Z-da8bc6 silver: hr.performance_reviews read=4000 written=4000 quarantined=0 warned=666 files_written=1 duration_s=8.40 rows_per_s=476
+2026-10-15 22:55:19,938 INFO run_id=20261015T225127Z-da8bc6 silver: hr.competency_assessments read=4000 written=4000 quarantined=0 warned=234 files_written=1 duration_s=8.11 rows_per_s=493
+2026-10-15 22:55:25,239 INFO run_id=20261015T225127Z-da8bc6 silver: hr.talent_review read=2000 written=2000 quarantined=0 warned=0 files_written=1 duration_s=5.30 rows_per_s=377
+2026-10-15 22:56:29,842 INFO run_id=20261015T225127Z-da8bc6 silver: learning_events read=29868 = deduped 152 + quarantined 142 + written 29574 files_written=37 duration_s=64.60 rows_per_s=462
+2026-10-15 22:56:29,842 INFO run_id=20261015T225127Z-da8bc6 silver: learning_events quarantine by rule {'learning_events.employee_id.not_null': 76, 'learning_events.event_ts.invalid': 53, 'learning_events.raw.malformed_json': 13}
+2026-10-15 22:56:29,842 INFO run_id=20261015T225127Z-da8bc6 silver: learning_events warnings by rule {'learning_events.event_text.notes_used': 38, 'learning_events.event_ts.before_hire': 5161}
+2026-10-15 22:56:39,622 INFO run_id=20261015T225127Z-da8bc6 gold: employee_performance_history rows=4000 grain=employee_id×review_period unique files_written=1 duration_s=3.70 rows_per_s=1081
+2026-10-15 22:56:44,230 INFO run_id=20261015T225127Z-da8bc6 gold: employee_performance_summary rows=2000 grain=employee_id unique files_written=1 duration_s=4.61 rows_per_s=434
+2026-10-15 22:56:48,023 INFO run_id=20261015T225127Z-da8bc6 gold: employee_competency_gaps rows=4000 grain=employee_id×competency_id unique files_written=1 duration_s=3.79 rows_per_s=1055
+2026-10-15 22:56:52,639 INFO run_id=20261015T225127Z-da8bc6 gold: team_performance_outcomes rows=100 grain=team_id unique files_written=1 duration_s=4.62 rows_per_s=22
+2026-10-15 22:56:57,134 INFO run_id=20261015T225127Z-da8bc6 gold: competency_distribution rows=400 grain=competency_id×department unique files_written=1 duration_s=4.50 rows_per_s=89
+2026-10-15 22:57:04,481 INFO run_id=20261015T225127Z-da8bc6 gold: learning_progress rows=25009 grain=employee_id×course_name unique files_written=1 duration_s=7.35 rows_per_s=3404
+2026-10-15 22:57:11,617 INFO run_id=20261015T225127Z-da8bc6 gold: learning_summary rows=2000 grain=employee_id unique files_written=1 duration_s=7.14 rows_per_s=280
+2026-10-15 22:57:20,598 INFO run_id=20261015T225127Z-da8bc6 gold: promotion_readiness rows=2000 grain=employee_id unique files_written=1 duration_s=8.98 rows_per_s=223
+2026-10-15 22:57:30,529 INFO run_id=20261015T225127Z-da8bc6 gold: attrition_risk_context rows=2000 grain=employee_id unique files_written=1 duration_s=9.93 rows_per_s=201
+2026-10-15 22:57:35,124 INFO run_id=20261015T225127Z-da8bc6 gold: attrition_by_trend rows=9 grain=attrition_risk×derived_rating_trend unique files_written=1 duration_s=4.59 rows_per_s=2
+2026-10-15 22:57:39,773 INFO run_id=20261015T225127Z-da8bc6 manifest written to s3a://coding-workshop-datalake-f2a96bad/lake/_runs/run_id=20261015T225127Z-da8bc6
+2026-10-15 22:57:40,136 INFO run_id=20261015T225127Z-da8bc6 end status=SUCCESS duration_s=368.045

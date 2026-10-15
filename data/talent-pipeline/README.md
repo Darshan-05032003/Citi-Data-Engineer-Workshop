@@ -102,9 +102,9 @@ kubectl logs -f job/coding-workshop-talent-pipeline                             
   deploying shell at apply time and never written to Terraform state. Reason: the EKS node role has no S3 permissions and the node
   requires IMDSv2 with hop limit 1, so pods cannot use instance credentials. They are short-lived STS credentials: run the job right
   after `deploy-backend.sh`. They are also kept in Helm's release record. Production would use IRSA (a pod IAM role) instead.
-- **Runtime:** the cloud runs took 1,440–1,476 s versus ~90 s locally (run manifests before the file-layout change in docs/DESIGN.md#performance): the pod has 1 CPU, reads 783 small JSONL
-  files over S3, and installs pyspark (~300 MB) with pip at start-up.
-- **Result:** runs `20261015T071439Z-9de56f` and `20261015T084021Z-13ec40` succeeded; all 26 manifest steps match the local run
+- **Runtime:** the final cloud run took 368 s (earlier runs before the file-layout change: 1,440–1,476 s) versus ~74 s
+  locally: the pod has 1 CPU, reads 783 small JSONL files over S3, and installs pyspark (~300 MB) with pip at start-up.
+- **Result:** the final run `20261015T225127Z-da8bc6` (current job.py; `code_version` 75d99c812e4f = sha256 of job.py plus the leading newline Helm adds) succeeded; all 26 manifest steps match the local run
   (see [Cloud run (EKS)](docs/test_evidence.md#cloud-run-eks)).
 
 ## Notebook data source
@@ -268,4 +268,4 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 - The latest run manifest: `lake/_runs/run_id=<id>/` (status, code version, source sizes, per-step counts and timings,
   quarantine and warning counts by rule).
 - [Cloud run (EKS)](docs/test_evidence.md#cloud-run-eks): cloud manifest vs local manifest, step by step.
-- [`docs/cloud_manifest.json`](docs/cloud_manifest.json) / [`docs/cloud_run_log.txt`](docs/cloud_run_log.txt): manifest and pipeline log of cloud run `20261015T084021Z-13ec40`.
+- [`docs/cloud_manifest.json`](docs/cloud_manifest.json) / [`docs/cloud_run_log.txt`](docs/cloud_run_log.txt): manifest and pipeline log of the final cloud run `20261015T225127Z-da8bc6`.

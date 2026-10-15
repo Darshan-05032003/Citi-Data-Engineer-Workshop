@@ -143,9 +143,9 @@ Bronze learning and about 6.5 min in Silver learning, of 25 min in total.
 | **Run total** | **96.04** | **932** | **75.32** | **99** |
 
 - Parquet files fell by 89% (932 → 99). The two learning steps run about 2× faster, and the run as a whole about 22% faster.
-- Local disk hides most of the per-file cost. On S3 each avoided file saves several HTTP requests, so the cloud gain
-  should be larger. It has not been measured yet; the next cloud run's manifest will show it, since each step records
-  `duration_s` and `files_written`.
+- Local disk hides most of the per-file cost; on S3 each avoided file saves several HTTP requests. **Measured in the cloud**
+  (run `20261015T225127Z-da8bc6`): Bronze learning 1.5 min and Silver learning 1.1 min, versus about 13.7 and 6.5 min before
+  the change (run `20261015T084021Z-13ec40`, from its log timestamps); whole run 6.1 min versus 24.6 min.
 - A second run on the same lake gave identical counts and identical Gold content hashes. The only extra file was the new
   run's quarantine folder, which is kept per `run_id` on purpose.
 
