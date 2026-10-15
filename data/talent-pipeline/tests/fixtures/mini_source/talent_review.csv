@@ -1,0 +1,7 @@
+employee_id,review_cycle,potential_rating,promotion_readiness,attrition_risk
+1,2024-H2,High,Ready Now,Low
+2,2024-H2,Medium,1-2 Years,High
+3,2024-H2,High,Ready Now,Medium
+4,2024-H2,Low,Not Ready,High
+5,2024-H2,High,1-2 Years,Low
+6,2024-H2,Medium,Not Ready,Medium

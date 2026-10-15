@@ -1,0 +1,6 @@
+{"event_id": "E3", "employee_id": "2", "event_date": "2024-03-01T11:00:00", "event_type": "enrollment", "course_name": "SQL", "text": "Enrolled in SQL.", "score": null}
+{"event_id": "E4", "employee_id": null, "event_date": "2024-03-02T09:00:00", "event_type": "enrollment", "course_name": "SQL", "text": "No employee.", "score": null}
+{"event_id": "E5", "employee_id": "3", "event_date": "2024-13-45T09:00:00", "event_type": "enrollment", "course_name": "SQL", "text": "Bad date.", "score": null}
+{"event_id": "E6", "employee_id": "5", "event_date": "2024-03-02T12:00:00", "event_type": "quiz_passed", "course_name": "SQL", "score": 90, "notes": "Passed the SQL quiz."}
+{"event_id": "E7", "employee_id": "4", "event_date": "2024-03-10T09:00:00", "event_type": "enrollment", "course_name": "Spark", "text": "Enrolled before hire.", "score": null}
+{"event_id": "E8", "employee_id": "6", "event_date": "2024-03-02T15:00:00", "event_type": "course_completed", "course_name": "Python", "text": "Completed without enrolling.", "score": null}

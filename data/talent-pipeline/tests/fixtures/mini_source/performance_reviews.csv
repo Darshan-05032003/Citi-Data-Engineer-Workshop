@@ -1,0 +1,13 @@
+review_id,employee_id,review_period,rating,manager_comment,submitted_date
+1,1,2024-H1,3,"Solid, steady delivery.",2024-07-15
+2,1,2024-H2,4,Strong half.,2025-01-15
+3,2,2024-H1,4,Good start.,2024-07-15
+4,2,2024-H2,3,,2025-01-15
+5,3,2024-H1,3,Meets expectations.,2024-07-15
+6,3,2024-H2,3,Meets expectations.,2025-01-15
+7,4,2024-H1,2,Reviewed before hire date.,2024-07-15
+8,4,2024-H2,4,Fast ramp-up.,2025-01-15
+9,5,2024-H1,4,Good.,2024-07-15
+10,5,2024-H2,5,Outstanding.,2025-01-15
+11,6,2024-H1,4,Reliable.,2024-07-15
+12,6,2024-H2,7,Rating out of range.,2025-01-15

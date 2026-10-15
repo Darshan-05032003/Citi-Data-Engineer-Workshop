@@ -1,24 +1,18 @@
 # Test evidence
 
-Run started (UTC): 2026-10-15T08:13:22Z · branch: feature/talent-pipeline · Python 3.11.0rc1 · PySpark 3.5.0 · Java 17 (venv activate)
+Run date (UTC): 2026-10-15 · branch: feature/talent-pipeline · Python 3.11.0rc1 · PySpark 3.5.0 · Java 17 (venv activate)
 
 ## Command
 ```
-cd data/talent-pipeline && source .venv/bin/activate && pytest -q --durations=5
+cd data/talent-pipeline && source .venv/bin/activate && pytest -q
 ```
 
-Covers 15 unit tests (`tests/test_rules.py`) and 4 integration tests (`tests/test_pipeline.py`, marker `integration`). The integration fixture runs `python job.py` twice into one temporary LAKE_ROOT on the real dataset and checks every expected number ([DESIGN.md](DESIGN.md#reference-numbers)), per-step reconciliation (bronze/silver), and re-run idempotency (equal counts, no duplicate keys, identical Gold content hashes).
+Covers 36 unit tests (`tests/test_rules.py` 15, `tests/test_stages.py` 21; see [Unit coverage](#unit-coverage)) and 4 integration tests (`tests/test_pipeline.py`, marker `integration`). The integration fixture runs `python job.py` twice into one temporary LAKE_ROOT on the real dataset and checks every expected number ([DESIGN.md](DESIGN.md#reference-numbers)), per-step reconciliation (bronze/silver), and re-run idempotency (equal counts, no duplicate keys, identical Gold content hashes).
 
 ## Output
 ```
-...................                                                      [100%]
-============================= slowest 5 durations ==============================
-191.53s setup    tests/test_pipeline.py::test_runs_succeed
-4.50s call     tests/test_rules.py::test_silver_learning_pipeline_on_fixture
-2.72s call     tests/test_rules.py::test_dq_domain_enum_range_regex
-2.51s call     tests/test_rules.py::test_dq_warning_flags_but_keeps_row
-2.50s call     tests/test_rules.py::test_dq_employees_not_null_unique_cast_fk
-19 passed in 216.11s (0:03:36)
+........................................                                 [100%]
+40 passed in 241.35s (0:04:01)
 ```
 
 ## Numbers verified by the integration test
@@ -40,6 +34,51 @@ Values copied from `tests/test_pipeline.py` `EXPECTED` and the latest local mani
 | G5 attrition risk Low / Medium / High | 1,077/612/311 | EXPECTED['risk'] |
 | G6 teams with projects / project_count | 27 / 33 | EXPECTED |
 | Gold rows: employee_performance_history, employee_performance_summary, employee_competency_gaps, team_performance_outcomes, competency_distribution, learning_progress, learning_summary, promotion_readiness, attrition_risk_context, attrition_by_trend | 4,000, 2,000, 4,000, 100, 400, 25,009, 2,000, 2,000, 2,000, 9 | manifest gold.* rows_written (run 20261015T055916Z-0b2e43) |
+
+## Unit coverage
+
+The integration tests run `job.py` in a subprocess, so coverage does not count them. `tests/test_stages.py` therefore runs
+`ingest_into_bronze` → `transform_to_silver` → `aggregate_to_gold` → `write_manifest` **in-process** on a hand-made mini
+dataset (`tests/fixtures/mini_source/`, real file formats). It also covers the remaining branches: config parsing, `spark_conf`,
+`read_latest_bronze_hr` (newest of 2 ingest dates / no partitions), duplicate Gold keys, and the `main()` failure path.
+
+```
+cd data/talent-pipeline && source .venv/bin/activate && pytest -q -m "not integration" --cov=job --cov-report=term-missing
+Name     Stmts   Miss  Cover   Missing
+--------------------------------------
+job.py     395      9    98%   571, 691, 1168-1170, 1180-1182, 1189
+--------------------------------------
+TOTAL      395      9    98%
+36 passed, 4 deselected in 63.64s (0:01:03)
+```
+
+Before this change, unit coverage was 58% (165 of 395 statements missed). Still uncovered:
+- the two reconciliation `raise` lines (571, 691);
+- `main()`'s success tail (1168-1170, covered by the integration tests);
+- `main()`'s "could not write manifest" branch (1180-1182);
+- `sys.exit(main())` under `__main__` (1189).
+
+**Mini dataset (hand-computed expectations, asserted by `test_stages.py`):**
+- HR: 3 teams, 3 competencies, 6 employees, 2 projects on team 1, 12 reviews, 8 assessments, 6 talent rows.
+- HR error rows:
+  - review 12 has rating 7, so it is quarantined by `performance_reviews.rating.domain`;
+  - assessment 8 has employee_id 99, so it is quarantined by `competency_assessments.employee_id.fk`.
+- Employee 4 is hired on 2024-08-01, so their H1 review and their assessment are flagged as before-hire warnings.
+- Learning: 3 files.
+  - The day=01 file has 4 lines, including 1 malformed line.
+  - The day=02 file has 6 lines: a duplicate E3, a null employee_id, a bad date, a `notes`-only event, an event before hire, and a completion without enrollment.
+  - The day=03 file is empty (0 bytes).
+
+| Step | read / written / quarantined / deduped / warned |
+|---|---|
+| bronze.hr teams, competencies, employees, projects | 3, 3, 6, 2 (read = written) |
+| bronze.hr performance_reviews, competency_assessments, talent_review | 12, 8, 6 (read = written) |
+| bronze.learning_activity | 10 / 10 / 0 / 0 / 0, with files=3 and zero_line_files=1 |
+| silver.hr.performance_reviews | 12 / 11 / 1 / 0 / 1 |
+| silver.hr.competency_assessments | 8 / 7 / 1 / 0 / 1 |
+| silver.learning_events | 10 / 6 / 3 (malformed 1, not_null 1, event_ts.invalid 1) / 1 / 2 (notes_used 1, before_hire 1) |
+| Gold rows | history 11, summary 6, gaps 7, teams 3, competency_distribution 6, learning_progress 5, learning_summary 6, promotion_readiness 6, attrition_context 6, attrition_by_trend 5 |
+| Gold values | trend improving/declining/stable/null 3/1/1/1; gaps −1/0/1/2 = 1/3/1/2; High + Ready Now 2; completion without enrollment 1; 1 team with projects (2 projects) |
 
 ## Cloud run (EKS)
 

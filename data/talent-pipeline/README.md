@@ -51,12 +51,14 @@ flowchart LR
 cd data/talent-pipeline
 source .venv/bin/activate        # Python 3.11, pyspark 3.5.0; activate sets JAVA_HOME=Java 17 and unsets SPARK_HOME
 python job.py                    # full run, ~90 s (latest run manifest); writes ./lake
-pytest -q                        # 15 unit + 4 integration = 19 tests (integration runs the job twice, ~4 min)
+pytest -q                        # 36 unit + 4 integration = 40 tests (integration runs the job twice, ~4 min)
 cd notebooks && jupyter nbconvert --to notebook --execute --inplace talent_insights.ipynb
 jupyter nbconvert --to html --output-dir ../docs talent_insights.ipynb
 ```
 
-Run only the fast tests with `pytest -q -m "not integration"`.
+Run only the fast tests with `pytest -q -m "not integration"` (~65 s). They include in-process Bronze → Silver → Gold runs on a
+hand-made mini dataset (`tests/fixtures/mini_source/`) and give 98% line coverage of `job.py`:
+`pytest -q -m "not integration" --cov=job --cov-report=term-missing`.
 
 ## Cloud deployment
 
@@ -165,7 +167,7 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 
 ## How to verify
 
-- [`docs/test_evidence.md`](docs/test_evidence.md): exact test command, full pytest output (19 passed) and the table of numbers asserted by the integration test.
+- [`docs/test_evidence.md`](docs/test_evidence.md): exact test command, full pytest output (40 passed), unit coverage (98%) and the tables of numbers asserted by the tests.
 - [`docs/source_to_target.md`](docs/source_to_target.md): column mapping per layer with the rule IDs applied.
 - [`notebooks/talent_insights.ipynb`](notebooks/talent_insights.ipynb) / [`docs/talent_insights.html`](docs/talent_insights.html): findings for Q1–Q7.
 - The latest run manifest: `lake/_runs/run_id=<id>/` (status, per-step counts, quarantine and warning counts by rule).

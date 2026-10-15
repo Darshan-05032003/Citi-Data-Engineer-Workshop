@@ -1,0 +1,7 @@
+employee_id,first_name,last_name,email,team_id,job_level,hire_date
+1,Ana,Lee,ana.lee.1@acme-corp.example,1,Senior,2020-01-15
+2,Ben,Ray,ben.ray.2@acme-corp.example,1,Junior,2023-03-01
+3,Cara,Ng,cara.ng.3@acme-corp.example,2,Manager,2019-06-01
+4,Dev,Oak,dev.oak.4@acme-corp.example,2,Senior,2024-08-01
+5,Eli,Fox,eli.fox.5@acme-corp.example,3,Junior,2022-02-01
+6,Fay,Kim,fay.kim.6@acme-corp.example,3,Director,2018-11-01
