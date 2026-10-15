@@ -208,15 +208,25 @@ def test_postgres_empty_table_fails(spark, tmp_path, monkeypatch) -> None:
 PARITY_SCHEMA = "hr_source_pytest"
 
 
+def _unavailable(reason: str) -> None:
+    """Skip the parity test locally; fail it when REQUIRE_POSTGRES is set (CI), so it cannot silently not run."""
+    if os.environ.get("REQUIRE_POSTGRES", "").strip().lower() in {"1", "true", "yes"}:
+        pytest.fail(f"REQUIRE_POSTGRES is set but {reason}", pytrace=False)
+    pytest.skip(reason)
+
+
 def _pg_env() -> dict:
-    """POSTGRES_* from the environment; the test is skipped when they are missing or PG is down."""
+    """POSTGRES_* from the environment. Skips (or fails, with REQUIRE_POSTGRES=1) when they are
+    missing or PostgreSQL is not reachable."""
     needed = ("POSTGRES_NAME", "POSTGRES_USER", "POSTGRES_PASS")
     if not all(os.environ.get(k) for k in needed):
-        pytest.skip(f"set {', '.join(needed)} (and POSTGRES_HOST/PORT) to run the Postgres parity test")
+        _unavailable(f"{', '.join(needed)} are not all set (also POSTGRES_HOST/PORT) for the Postgres parity test")
     host, port = os.environ.get("POSTGRES_HOST", "localhost"), os.environ.get("POSTGRES_PORT", "5432")
-    if not shutil.which("pg_isready") or subprocess.run(
-            ["pg_isready", "-h", host, "-p", port, "-t", "5"], capture_output=True).returncode != 0:
-        pytest.skip(f"PostgreSQL not reachable at {host}:{port}")
+    if not shutil.which("pg_isready"):
+        _unavailable("pg_isready (postgresql-client) is not installed")
+    if subprocess.run(["pg_isready", "-h", host, "-p", port, "-t", "5"],
+                      capture_output=True).returncode != 0:
+        _unavailable(f"PostgreSQL is not reachable at {host}:{port}")
     return {k: os.environ[k] for k in needed} | {"POSTGRES_HOST": host, "POSTGRES_PORT": port,
                                                   "POSTGRES_SCHEMA": PARITY_SCHEMA}
 

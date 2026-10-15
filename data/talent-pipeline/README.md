@@ -53,7 +53,7 @@ flowchart LR
 cd data/talent-pipeline
 source .venv/bin/activate        # Python 3.11, pyspark 3.5.0; activate sets JAVA_HOME=Java 17 and unsets SPARK_HOME
 python job.py                    # full run, ~75 s (latest run manifest); writes ./lake
-pytest -q                        # 58 unit + 5 integration = 63 tests (~6 min; the Postgres parity test skips without POSTGRES_* env)
+pytest -q                        # 64 unit + 5 integration = 69 tests (~6 min; the Postgres parity test skips without POSTGRES_* env)
 cd notebooks && jupyter nbconvert --to notebook --execute --inplace talent_insights.ipynb
 jupyter nbconvert --to html --output-dir ../docs talent_insights.ipynb
 ```
@@ -63,7 +63,9 @@ hand-made mini dataset (`tests/fixtures/mini_source/`), the source guards (`test
 `pytest -q -m "not integration" --cov=job --cov-report=term-missing`.
 
 **CI** ([`.github/workflows/talent-pipeline.yml`](../../.github/workflows/talent-pipeline.yml), on every push/PR touching this folder):
-unit tests with a 90% coverage gate → integration tests on the downloaded, sha256-checked dataset; bandit scan of `job.py` (medium+ fails).
+unit tests with a 90% coverage gate → integration tests on the downloaded, sha256-checked dataset, including the files-vs-postgres
+parity test, which runs against a `postgres:17` service container (throwaway CI-only credentials) and **fails instead of skipping**
+if Postgres is unavailable (`REQUIRE_POSTGRES=1`); bandit scan of `job.py` (medium+ fails).
 
 ## Cloud deployment
 
@@ -240,7 +242,7 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 
 ## How to verify
 
-- [`docs/test_evidence.md`](docs/test_evidence.md): exact test command, full pytest output (63 passed), unit coverage (98%) and the tables of numbers asserted by the tests.
+- [`docs/test_evidence.md`](docs/test_evidence.md): exact test command, full pytest output (69 passed), unit coverage (98%) and the tables of numbers asserted by the tests.
 - [`docs/source_to_target.md`](docs/source_to_target.md): column mapping per layer with the rule IDs applied.
 - [`notebooks/talent_insights.ipynb`](notebooks/talent_insights.ipynb) / [`docs/talent_insights.html`](docs/talent_insights.html): findings for Q1–Q7.
 - The latest run manifest: `lake/_runs/run_id=<id>/` (status, code version, source sizes, per-step counts and timings,

@@ -7,12 +7,12 @@ Run date (UTC): 2026-10-15 · branch: feature/talent-pipeline · Python 3.11.0rc
 cd data/talent-pipeline && source .venv/bin/activate && pytest -q
 ```
 
-Covers 58 unit tests (`tests/test_rules.py` 15, `tests/test_stages.py` 23, `tests/test_guards.py` 8, `tests/test_postgres.py` 12; see [Unit coverage](#unit-coverage)) and 5 integration tests: 4 in `tests/test_pipeline.py` (marker `integration`) and the files-vs-postgres parity test in `tests/test_postgres.py` (markers `integration` + `postgres`; this run had `POSTGRES_NAME/USER/PASS` set for the local server, so it ran instead of skipping). The integration fixture runs `python job.py` twice into one temporary LAKE_ROOT on the real dataset and checks every expected number ([DESIGN.md](DESIGN.md#reference-numbers)), per-step reconciliation (bronze/silver), and re-run idempotency (equal counts, no duplicate keys, identical Gold content hashes).
+Covers 64 unit tests (`tests/test_rules.py` 15, `tests/test_stages.py` 23, `tests/test_guards.py` 8, `tests/test_postgres.py` 12, `tests/test_postgres_gate.py` 6; see [Unit coverage](#unit-coverage)) and 5 integration tests: 4 in `tests/test_pipeline.py` (marker `integration`) and the files-vs-postgres parity test in `tests/test_postgres.py` (markers `integration` + `postgres`; this run had `REQUIRE_POSTGRES=1` and `POSTGRES_NAME/USER/PASS` set for the local server, so it ran instead of skipping). The integration fixture runs `python job.py` twice into one temporary LAKE_ROOT on the real dataset and checks every expected number ([DESIGN.md](DESIGN.md#reference-numbers)), per-step reconciliation (bronze/silver), and re-run idempotency (equal counts, no duplicate keys, identical Gold content hashes).
 
 ## Output
 ```
-...............................................................          [100%]
-63 passed in 339.47s (0:05:39)
+.....................................................................    [100%]
+69 passed in 304.13s (0:05:04)
 ```
 
 ## Numbers verified by the integration test
@@ -135,7 +135,7 @@ or the workflow file changes, and on manual dispatch. Permissions are `contents:
 | Job | Runs | Fails when |
 |---|---|---|
 | `unit` | Python 3.11 + Temurin Java 17; `pip install -r requirements-dev.txt`; `pytest -q -m "not integration" --cov=job --cov-report=term --cov-fail-under=90` | any unit test fails or `job.py` coverage < 90% |
-| `integration` (needs `unit`, 20 min timeout) | same setup; `bash scripts/fetch_dataset.sh` (download + sha256 check); `pytest -q -m integration` | the dataset can't be fetched or verified (clear `::error` annotation: "Dataset download failed … not a pipeline test failure"), or any integration test fails |
+| `integration` (needs `unit`, 20 min timeout) | same setup, plus a `postgres:17` service container (health-checked with `pg_isready`, throwaway CI-only credentials in the job `env`, not GitHub secrets) and `REQUIRE_POSTGRES=1`; installs `postgresql-client` only if `psql`/`pg_isready` are missing; `bash scripts/fetch_dataset.sh` (download + sha256 check); `bash scripts/load_source_postgres.sh`; `pytest -q -m integration` (includes the files-vs-postgres parity test) | the dataset can't be fetched or verified (clear `::error` annotation: "Dataset download failed … not a pipeline test failure"), Postgres is unreachable (the parity test fails instead of skipping), or any integration test fails |
 | `security` | `pip install bandit==1.7.10`; `bandit -r job.py -ll` | bandit finds a medium or high severity issue |
 
 **The same commands, run locally** (2026-10-15, before the first push of the workflow):

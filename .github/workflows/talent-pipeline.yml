@@ -50,6 +50,31 @@ jobs:
     needs: unit
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # CI-only throwaway credentials for the disposable postgres:17 service container below.
+    # They are not GitHub secrets, protect nothing, and are never used outside this job.
+    # (Service env cannot read the job env context, so the same values appear in both places.)
+    env:
+      IS_LOCAL: "true"
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_NAME: talent_ci
+      POSTGRES_USER: ci_user
+      POSTGRES_PASS: ci_only_not_a_secret
+      REQUIRE_POSTGRES: "1"  # the parity test must run here: fail, never skip, if Postgres is down
+    services:
+      postgres:
+        image: postgres:17  # same major version as the Aurora cluster (17.7)
+        env:
+          POSTGRES_DB: talent_ci
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_only_not_a_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci_user -d talent_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -63,13 +88,22 @@ jobs:
           java-version: "17"
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
+      - name: Ensure PostgreSQL client tools (psql, pg_isready)
+        run: |
+          if command -v psql >/dev/null && command -v pg_isready >/dev/null; then
+            echo "psql and pg_isready already installed: $(psql --version)"
+          else
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          fi
       - name: Fetch workshop dataset (sha256-checked)
         run: |
           if ! bash scripts/fetch_dataset.sh; then
             echo "::error title=Dataset download failed::Could not download or verify the workshop dataset (see the log above). The integration tests did not run; this is not a pipeline test failure."
             exit 1
           fi
-      - name: Integration tests
+      - name: Load HR tables into the Postgres service
+        run: bash scripts/load_source_postgres.sh
+      - name: Integration tests (includes the files-vs-postgres parity test)
         run: pytest -q -m integration
 
   security:
