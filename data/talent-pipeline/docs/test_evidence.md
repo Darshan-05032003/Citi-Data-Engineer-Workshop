@@ -7,7 +7,7 @@ Run started (UTC): 2026-10-15T08:13:22Z · branch: feature/talent-pipeline · Py
 cd data/talent-pipeline && source .venv/bin/activate && pytest -q --durations=5
 ```
 
-Covers 15 unit tests (`tests/test_rules.py`) and 4 integration tests (`tests/test_pipeline.py`, marker `integration`). The integration fixture runs `python job.py` twice into one temporary LAKE_ROOT on the real dataset and checks every CLAUDE.md expected number, per-step reconciliation (bronze/silver), and re-run idempotency (equal counts, no duplicate keys, identical Gold content hashes).
+Covers 15 unit tests (`tests/test_rules.py`) and 4 integration tests (`tests/test_pipeline.py`, marker `integration`). The integration fixture runs `python job.py` twice into one temporary LAKE_ROOT on the real dataset and checks every expected number (PLAN.md §2), per-step reconciliation (bronze/silver), and re-run idempotency (equal counts, no duplicate keys, identical Gold content hashes).
 
 ## Output
 ```

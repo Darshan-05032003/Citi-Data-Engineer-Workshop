@@ -21,7 +21,7 @@ pytestmark = pytest.mark.integration
 JOB_DIR = Path(job.__file__).resolve().parent
 TECH_COLS = ("_gold_run_id", "_built_at", "_run_id")
 
-# Mirrors CLAUDE.md "Expected numbers".
+# Mirrors the expected numbers in docs/PLAN.md §2.
 EXPECTED = {
     "hr": {
         "employees": 2000, "teams": 100, "competencies": 40, "projects": 33,
