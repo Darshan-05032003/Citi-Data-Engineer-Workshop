@@ -94,6 +94,27 @@ kubectl logs -f job/coding-workshop-talent-pipeline                             
 - **Result:** runs `20261015T071439Z-9de56f` and `20261015T084021Z-13ec40` succeeded; all 26 manifest steps match the local run
   (see [Cloud run (EKS)](docs/test_evidence.md#cloud-run-eks)).
 
+**Switching the cloud job to Postgres** ([`infra/talent_pg.tf`](../../infra/talent_pg.tf); the default stays `files`):
+
+```bash
+export TF_VAR_talent_source_mode=postgres      # unset (or "files") to switch back
+export TF_VAR_aws_eks_enabled=true && ./bin/deploy-backend.sh aws
+```
+
+- **Network:** one security-group rule allows TCP 5432 from the EKS cluster security group (the one the nodes use) into
+  Aurora's security group. There is no CIDR rule and no other port.
+- **Settings:** Helm passes `SOURCE_MODE`, `POSTGRES_HOST/PORT/NAME/USER` (from `aws_rds_cluster.this`) as plain env.
+  `POSTGRES_PASS` goes only in postgres mode, into the job's Kubernetes Secret. Terraform hands it to `helm` as the shell
+  variable `$POSTGRES_PASS`, so the value never appears in the command text, the logs or the plan.
+  `master_password` is sensitive, so Terraform shows "output suppressed" for that provisioner in postgres mode.
+- **Data first:** Aurora must hold the `hr_source` schema before a postgres-mode run, loaded with
+  `scripts/load_source_postgres.sh`. The VDI is outside the VPC and cannot reach Aurora, so the load has to run from
+  inside the VPC (for example a one-off pod). Until then a postgres-mode run stops before writing anything, with
+  `source table not found or unreadable`.
+- **Production follow-up:** instead of short-lived STS keys and a DB password in Helm values and a Kubernetes Secret,
+  use **IRSA** (an IAM role for the job's service account) for S3. Use **AWS Secrets Manager** (or Aurora's managed
+  master password) with the External Secrets Operator or the Secrets Store CSI driver for the database credentials.
+
 ## Notebook data source
 
 The notebook reads Gold and the newest run manifest from `LAKE_ROOT`. This is an environment variable, the same one `job.py` uses:
@@ -235,8 +256,8 @@ shortlist 357; attrition risk Low/Medium/High 1,077/612/311; 27 of 100 teams hav
 - Projects link only to teams (27 of 100) and have no dates; there is no "key competency" flag and no course-to-competency mapping.
 - Counts after Silver differ slightly from raw profiling: 38 `notes` events after dedupe, 3,255 completion-without-enrollment
   employee×course pairs (39 lines / 3,262 in raw profiling; see [docs/DESIGN.md](docs/DESIGN.md#reference-numbers)).
-- Postgres mode is verified locally only: in the cloud, the EKS node's security group cannot reach Aurora on port 5432
-  (checked 2026-10-15), so the cloud job still uses files mode until that network rule is added.
+- Postgres mode is verified locally and in CI (PG 17 service). For the cloud, `infra/talent_pg.tf` adds the network rule
+  and the mode switch, but it has not been applied or run on EKS yet, and Aurora still needs `hr_source` loaded.
 - The cloud job uses short-lived credentials in a Kubernetes Secret instead of IRSA; a cloud run is slow (~24–25 min) and its pod
   logs are deleted 30 min after it finishes, so the run manifest in S3 is the durable record.
 

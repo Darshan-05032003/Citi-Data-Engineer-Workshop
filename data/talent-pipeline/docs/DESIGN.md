@@ -81,8 +81,10 @@ Gold (one function per dataset) → manifest → `main()`. Nothing runs at impor
 **Loading the source.**
 - `scripts/load_source_postgres.sh` recreates the schema (`DROP … CASCADE; CREATE`) and runs the dataset's **unedited**
   `load.sh` with `PGOPTIONS='-c search_path=<schema>'`. The same environment variables work locally and against Aurora.
-- **Cloud gap (checked 2026-10-15):** the EKS node's security group cannot reach Aurora on port 5432, so the cloud job
-  keeps files mode until a network rule is added. That is an infra change, planned separately.
+- **Cloud:** on 2026-10-15 the EKS node's security group could not reach Aurora on 5432. `infra/talent_pg.tf` adds the
+  single 5432 rule (EKS cluster SG → Aurora SG) and the `talent_source_mode` switch (default `files`). The password
+  reaches the job only through a Kubernetes Secret. It is not applied yet, and Aurora's `hr_source` still has to be loaded
+  from inside the VPC.
 
 ## Observability and error handling
 
